@@ -312,3 +312,47 @@ uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 Interactive Swagger documentation is available at `http://localhost:8000/docs`.
 
+---
+
+## Phase 4: Frontend Inspector Dashboard, Interactive Visualizer & QA Workbench
+
+Phase 4 delivers an aerospace-grade Next.js 15 (App Router) interface styled in high-contrast technical dark theme (`#090d16`), Lucide icons, Recharts interactive visualizers, and zero-LLM deterministic explainability readers.
+
+### Frontend Application Structure
+
+```
+frontend/
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx                  # Global theme, font, and persistent telemetry nav
+│   │   ├── page.tsx                    # Screen 1: Fleet & Lot Overview + Triage Donut
+│   │   ├── lots/[lotId]/page.tsx       # Screen 2: Parametric Distribution Envelopes & MAD Bands
+│   │   ├── components/[id]/page.tsx    # Screen 3: Trajectory Visualizer & Explainability
+│   │   ├── review-queue/page.tsx       # Screen 4: QA Review Queue & Override Workbench
+│   │   └── benchmarks/page.tsx         # Screen 5: SIH Mission Benchmark Metrics Dashboard
+│   ├── components/
+│   │   ├── Navbar.tsx                  # Aerospace telemetry header with live status
+│   │   ├── VerdictBadge.tsx            # High-contrast PASS / REVIEW / REJECT chips
+│   │   ├── DriftTrajectoryChart.tsx    # Multi-line degradation visualizer with MAD bands
+│   │   ├── ExplanationCard.tsx         # Markdown audit justification and MAD excursions
+│   │   └── ReviewActionModal.tsx       # Interactive QA override & audit logging modal
+│   └── lib/
+│       ├── api.ts                      # Typed API client connecting to FastAPI :8000
+│       └── types.ts                    # TypeScript interfaces aligned with Pydantic schemas
+```
+
+### Running the Next.js Frontend
+
+```bash
+cd frontend
+npm run dev
+```
+Open `http://localhost:3000` to access the full screening workbench.
+
+To build the production bundle:
+```bash
+cd frontend
+npm run build
+```
+
+
