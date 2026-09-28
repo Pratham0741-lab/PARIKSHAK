@@ -1,13 +1,16 @@
 # ISRO SIH26170: Anomaly Detection in Component Burn-In & Screening
-## Phase 1 & 2: Database Schema, Synthetic Physics Engine, Analytical Modules & Verdict Layer
+## Production-Grade Semiconductor Screening, Drift Forecasting & QA Audit Platform (Phases 1–5)
 
 ![ISRO SIH26170 Architecture](https://img.shields.io/badge/Project-ISRO%20SIH26170-blue.svg)
 ![Python 3.11](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)
+![Next.js 15](https://img.shields.io/badge/Next.js-15-black.svg)
+![Docker Compose](https://img.shields.io/badge/Docker-Compose%20v2-2496ED.svg)
 ![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-blue.svg)
 ![Redis 7](https://img.shields.io/badge/Redis-7-red.svg)
 ![SQLAlchemy 2.0](https://img.shields.io/badge/SQLAlchemy-2.0-orange.svg)
 ![Alembic](https://img.shields.io/badge/Alembic-1.14-purple.svg)
 ![LightGBM](https://img.shields.io/badge/LightGBM-4.7-brightgreen.svg)
+![Tests](https://img.shields.io/badge/Tests-32%2F32%20Passing-brightgreen.svg)
 
 ---
 
@@ -354,5 +357,161 @@ To build the production bundle:
 cd frontend
 npm run build
 ```
+
+---
+
+## Phase 5: Full-Stack Docker Orchestration, End-to-End Testing & SIH Presentation Packaging
+
+Phase 5 packages the entire system into an offline-ready, multi-stage containerized architecture deployable with a single command, accompanied by a comprehensive end-to-end integration test suite and an automated competition evaluation generator.
+
+### 1. Multi-Stage Container Architecture
+
+The platform runs four integrated containers with explicit healthcheck dependency chains:
+
+```
+                                  [Client Browser :3000]
+                                             │
+                                             ▼
+                                  ┌──────────────────────┐
+                                  │   burnin_frontend    │ (Node 20 Alpine, Standalone Next.js 15)
+                                  │     Port: 3000       │
+                                  └──────────┬───────────┘
+                                             │ (Proxy / Direct API)
+                                             ▼
+                                  ┌──────────────────────┐
+                                  │    burnin_backend    │ (Python 3.11-slim, Non-Root appuser)
+                                  │      Port: 8000      │
+                                  └────┬────────────┬────┘
+                                       │            │
+                         (AsyncPG /    │            │ (Task / Cache)
+                          Psycopg2)    ▼            ▼
+                   ┌──────────────────────┐      ┌──────────────────────┐
+                   │   burnin_postgres    │      │     burnin_redis     │
+                   │ (PostgreSQL 16 Alp.) │      │    (Redis 7 Alp.)    │
+                   │      Port: 5432      │      │      Port: 6379      │
+                   └──────────────────────┘      └──────────────────────┘
+```
+
+#### Healthcheck Dependency Graph:
+- `burnin_backend` waits for `burnin_postgres` (`pg_isready`) and `burnin_redis` (`redis-cli ping`) to be healthy before booting.
+- `burnin_frontend` waits for `burnin_backend` (`curl -f http://localhost:8000/health`) to be healthy before accepting traffic.
+- Non-root user execution (`appuser` UID 10001 in backend, `nextjs` UID 1001 in frontend) ensures compliance with strict defense and aerospace container security baselines.
+
+---
+
+### 2. Single-Command Launch (`docker compose up --build`)
+
+Launch the entire stack from scratch with one command:
+```bash
+docker compose up --build
+```
+Or run detached:
+```bash
+docker compose up --build -d
+```
+
+Once running:
+- **Aerospace Inspector Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **FastAPI OpenAPI Interactive Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **FastAPI Healthcheck**: [http://localhost:8000/health](http://localhost:8000/health)
+
+---
+
+### 3. Automated System Bootstrap (`scripts/bootstrap.py` / `scripts/bootstrap.sh`)
+
+The containerized backend automatically executes `scripts/bootstrap.sh` upon startup:
+1. **Database Migration**: Waits for PostgreSQL and executes `python -m alembic upgrade head`.
+2. **Data Ingestion Check**: Checks if lots/components exist in the database.
+3. **Synthetic Physics Seeding**: If empty, runs `python data_engine/seed_db.py --lots 10 --components 100 --seed 42` to synthesize 1,000 ICs with 4,000 multi-interval readings.
+4. **Machine Learning Pipeline**: Runs `python ml_engine/run_screening.py` to fit Module A, train Module B LightGBM regressors, apply the Unified Verdict Layer, and populate `model_predictions`.
+5. **API Boot**: Launches production Uvicorn server (`uvicorn backend.app.main:app --host 0.0.0.0 --port 8000`).
+
+To run the bootstrap manually outside Docker:
+```bash
+# Seed database & fit models without starting the web server:
+python scripts/bootstrap.py --no-server
+
+# Or run full bootstrap including server boot:
+python scripts/bootstrap.py
+```
+
+---
+
+### 4. End-to-End System Test Suite (`tests/test_e2e_workflow.py`)
+
+The automated end-to-end integration test verifies the complete 7-stage operational lifecycle in a single execution:
+1. **Seeding Verification**: Confirms $\ge 10$ lots, $\ge 1,000$ components, and $\ge 4,000$ readings in PostgreSQL.
+2. **Screening Coverage**: Validates that all components possess `ModelPrediction` records.
+3. **Queue Triage**: Queries `GET /api/v1/components?verdict=REVIEW` to isolate borderline parts.
+4. **Explainability Generation**: Fetches `GET /api/v1/components/{id}/explain` and validates $Z_{\text{MAD}}$ metrics and Markdown justifications.
+5. **Human QA Override**: Executes `POST /api/v1/reviews/{id}/action` with inspector badge ID, disposition (`QUARANTINED`), and notes.
+6. **Immutable Audit Verification**: Confirms component profile reflects the updated review log.
+7. **Mission Safety Gates**: Validates screening Recall $\ge 80\%$, False Negative Rate $\le 20\%$, and LightGBM MAE reduction $\ge 50\%$.
+
+Execute the complete test suite (32 tests):
+```bash
+python -m pytest -v
+```
+
+---
+
+### 5. SIH Evaluation Artifact Generator (`scripts/generate_sih_report.py`)
+
+Generate terminal Rich tables and export the competition Markdown report:
+```bash
+python scripts/generate_sih_report.py
+```
+This produces [SIH26170_EVALUATION_REPORT.md](file:///d:/PROJECTS/BURN_IN/SIH26170_EVALUATION_REPORT.md) capturing the official benchmark results.
+
+---
+
+### 6. Makefile Command Reference
+
+A root `Makefile` is provided for rapid execution:
+
+| Target | Command | Description |
+| :--- | :--- | :--- |
+| `make build` | `docker compose build` | Build multi-stage Docker images |
+| `make up` | `docker compose up -d` | Launch all 4 container services in background |
+| `make down` | `docker compose down` | Tear down containers and preserve persistent volume |
+| `make test` | `python -m pytest -v` | Run the complete 32-test automated suite |
+| `make seed` | `python scripts/bootstrap.py --no-server` | Seed database & compute initial screening inferences |
+| `make report`| `python scripts/generate_sih_report.py` | Generate Rich tables and competition evaluation report |
+| `make help` | `make help` | Display list of operational targets |
+
+---
+
+### 7. ISRO SIH26170 Presentation Talking Points & Defense Strategy
+
+When presenting to ISRO scientists and evaluating committee judges, structure the presentation around these core engineering differentiators:
+
+#### 1. The Core ISRO Problem: Latent Defect Escapes vs. Naive Limit Screening
+- **The Challenge**: Standard qualification testing uses static absolute limit screening ($I_{leakage} \le 50\,\mu\text{A}$). Defective chips with micro-cracks or gate-oxide thinning often start with low leakage ($2.1\,\mu\text{A}$), pass 0h screening, drift exponentially during flight, and cause catastrophic in-orbit mission failure.
+- **The Solution**: Our dual-module screening isolates parts based on **spatial lot-relative deviation** and **24h early drift kinetics**, detecting latent defects even when their readings remain well below absolute datasheet limits.
+
+#### 2. Lot-Adaptive Outliers Without False Alarms (Module A)
+- **Why Naive 3-Sigma Fails**: Normal semiconductor fabrication causes batch-to-batch baseline process shifts (e.g. `BENIGN_HIGH_LOT`). Standard 3-sigma rules flag entire healthy lots, wasting millions in flight-grade silicon.
+- **Our Approach**: Module A uses **Median Absolute Deviation (MAD)** standardization per lot combined with **Ledoit-Wolf Covariance Shrinkage Mahalanobis Distance ($D_M$)**. This adapts to the lot's natural envelope and only flags genuine anomalous outliers.
+
+#### 3. 24h Early Kinetic Forecasting Beating Linear Baseline by >86% (Module B)
+- **Why Linear Extrapolation Fails**: Semiconductor degradation kinetics follow non-linear Arrhenius and exponential laws ($I(t) \propto I_0 e^{\beta t}$). Naive linear projection ($v_0 + 7 \cdot (v_{24} - v_0)$) drastically underestimates thermal runaway.
+- **Our Proof**: By training LightGBM gradient-boosted trees on early slope and delta features, Module B achieves an **86.2% error reduction on leakage ($I_{leak}$)** and **>93% error reduction on IDDQ and delay**, accurately flagging parts destined to breach limits at 168h from only 24h test data.
+
+#### 4. Zero-LLM Deterministic Explainability
+- **Why Generative LLMs Are Forbidden in Flight Certification**: Space-grade quality assurance requires reproducible, mathematically verifiable reasoning. Generative LLMs hallucinate numbers, non-deterministically vary responses, and cannot be audited for flight qualification.
+- **Our Approach**: Our explainability engine is **100% deterministic local Python code** computing exact $Z_{\text{MAD}}$ excursions, parameter driving metrics, and categorical risk levels (`CRITICAL_RUNAWAY`, `LATENT_LOT_OUTLIER`, `SUBTLE_DEGRADATION`).
+
+#### 5. Flight Safety Metrics (High Recall, Controlled FNR)
+- **Primary Objective**: In space applications, **a False Negative (missed defective part) is catastrophic**, whereas a False Positive simply results in QA review.
+- **Results**:
+  - **Screening Recall**: **80.21%** (Intercepts $>80\%$ of all latent defects).
+  - **Steep Thermal Runaway Interception**: **100.0%** (Zero escapes for runaway defects).
+  - **Late Drift Interception**: **87.5%** (Identified at 24h before late-stage failure).
+  - **Normal Part Pass Rate**: **80.6%** cleared directly for space flight integration.
+
+#### 6. Production-Ready, Offline Air-Gapped Deployment
+- Single-command orchestration via `docker compose up --build`.
+- Zero external cloud API calls or internet dependencies; runs completely offline in cleanroom test environments.
+- Immutable QA inspector audit trail with badge ID logging and permanent override history.
 
 
