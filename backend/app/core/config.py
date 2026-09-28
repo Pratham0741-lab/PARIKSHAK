@@ -1,0 +1,105 @@
+"""
+Configuration management for the ISRO SIH26170 Burn-In Anomaly Detection System.
+Loads environment variables from .env using Pydantic Settings.
+"""
+
+from functools import lru_cache
+from typing import Optional
+from pydantic import Field, computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # Application settings
+    APP_NAME: str = "ISRO-BurnIn-Screening"
+    APP_ENV: str = "development"
+    DEBUG: bool = True
+    SECRET_KEY: str = "isro_burnin_screening_secret_key_change_in_production_2026"
+
+    # PostgreSQL configuration
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5433
+    POSTGRES_USER: str = "burnin_user"
+    POSTGRES_PASSWORD: str = "burnin_secure_pass_2026"
+    POSTGRES_DB: str = "burn_in_db"
+
+    # Optional direct URLs
+    DATABASE_URL: Optional[str] = None
+    ASYNC_DATABASE_URL: Optional[str] = None
+
+    # Connection pooling
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: int = 30
+    DB_ECHO: bool = False
+
+    # Redis configuration
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: Optional[str] = None
+    REDIS_DB: int = 0
+    REDIS_URL: Optional[str] = None
+
+    # Synthetic Data Defaults
+    DEFAULT_NUM_LOTS: int = 10
+    DEFAULT_COMPONENTS_PER_LOT: int = 100
+    SYNTHETIC_RANDOM_SEED: int = 42
+
+    # Datasheet Absolute Limits
+    DATASHEET_LEAKAGE_MAX_UA: float = 50.0
+    DATASHEET_IDDQ_MAX_MA: float = 5.0
+    DATASHEET_DELAY_MAX_NS: float = 8.0
+
+    @computed_field
+    @property
+    def sync_database_url(self) -> str:
+        """Returns the synchronous PostgreSQL connection URL for psycopg2/alembic."""
+        if self.DATABASE_URL:
+            # Normalize if protocol lacks psycopg2
+            if self.DATABASE_URL.startswith("postgresql://"):
+                return self.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+            return self.DATABASE_URL
+        return (
+            f"postgresql+psycopg2://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
+
+    @computed_field
+    @property
+    def async_database_url(self) -> str:
+        """Returns the asynchronous PostgreSQL connection URL for asyncpg."""
+        if self.ASYNC_DATABASE_URL:
+            return self.ASYNC_DATABASE_URL
+        if self.DATABASE_URL:
+            return self.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1).replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
+        return (
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
+
+    @computed_field
+    @property
+    def computed_redis_url(self) -> str:
+        """Returns the Redis connection URL."""
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
+        return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """Cached accessor for application settings."""
+    return Settings()
+
+
+settings = get_settings()
