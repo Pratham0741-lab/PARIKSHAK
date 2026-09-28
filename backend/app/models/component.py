@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from backend.app.models.lot import Lot
     from backend.app.models.reading import BurnInReading
     from backend.app.models.prediction import ModelPrediction
+    from backend.app.models.review import InspectorReview
 
 
 class GroundTruthLabel(str, enum.Enum):
@@ -95,6 +96,14 @@ class Component(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         doc="Unified screening model prediction and verdict",
+    )
+    reviews: Mapped[List["InspectorReview"]] = relationship(
+        "InspectorReview",
+        back_populates="component",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="InspectorReview.reviewed_at.desc()",
+        doc="QA inspector audit review history for this component",
     )
 
     __table_args__ = (

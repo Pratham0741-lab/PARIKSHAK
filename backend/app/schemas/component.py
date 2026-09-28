@@ -1,0 +1,84 @@
+"""
+Pydantic Schemas for Component listing, profile, and readings.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field
+from backend.app.schemas.review import ReviewItem
+
+
+class ReadingItem(BaseModel):
+    """Component measurement at a discrete test interval."""
+    model_config = ConfigDict(from_attributes=True)
+
+    interval_hours: int = Field(..., description="Burn-in test interval (0, 24, 96, 168)")
+    leakage_current_ua: float = Field(..., description="Measured leakage in uA")
+    iddq_ma: float = Field(..., description="Measured IDDQ in mA")
+    propagation_delay_ns: float = Field(..., description="Measured delay in ns")
+    recorded_at: datetime = Field(..., description="Timestamp of measurement acquisition")
+
+
+class ModelPredictionItem(BaseModel):
+    """Component screening model prediction and triage details."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    module_a_score: float = Field(..., description="Module A composite outlier score [0, 1]")
+    module_a_mahalanobis: float = Field(..., description="Mahalanobis distance")
+    module_a_flag: bool = Field(..., description="True if flagged as spatial outlier")
+    pred_leakage_168h: float = Field(..., description="Forecasted 168h leakage in uA")
+    pred_iddq_168h: float = Field(..., description="Forecasted 168h IDDQ in mA")
+    pred_delay_168h: float = Field(..., description="Forecasted 168h delay in ns")
+    drift_slope_ua_per_hr: float = Field(..., description="Implied drift rate in uA/hr")
+    module_b_flag: bool = Field(..., description="True if early drift alert triggered")
+    verdict: str = Field(..., description="Triage verdict: PASS, REVIEW, or REJECT")
+    verdict_reason: str = Field(..., description="Rule justification")
+    created_at: datetime
+
+
+class ComponentListItem(BaseModel):
+    """Brief component metadata for tabular search and queue rendering."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    lot_id: uuid.UUID
+    lot_number: str
+    serial_number: str
+    ground_truth_label: str
+    ground_truth_flag: bool
+    is_datasheet_breached: bool
+    verdict: Optional[str] = None
+    module_a_score: Optional[float] = None
+    pred_leakage_168h: Optional[float] = None
+    drift_slope_ua_per_hr: Optional[float] = None
+
+
+class PaginatedComponentsResponse(BaseModel):
+    """Paginated collection of components with search filters."""
+    total: int = Field(..., description="Total items matching filter")
+    page: int = Field(..., description="Current page number (1-indexed)")
+    page_size: int = Field(..., description="Number of items per page")
+    total_pages: int = Field(..., description="Total available pages")
+    items: List[ComponentListItem] = Field(..., description="Components matching criteria")
+
+
+class ComponentProfileResponse(BaseModel):
+    """Comprehensive component inspection profile including time-series, bands, and predictions."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    lot_id: uuid.UUID
+    lot_number: str
+    wafer_id: str
+    serial_number: str
+    ground_truth_label: str
+    ground_truth_flag: bool
+    is_datasheet_breached: bool
+    readings: List[ReadingItem] = Field(default_factory=list, description="Raw readings time series")
+    prediction: Optional[ModelPredictionItem] = Field(None, description="Screening prediction record")
+    reviews: List[ReviewItem] = Field(default_factory=list, description="Inspector audit history")
+    lot_envelope: Optional[Dict[str, Any]] = Field(None, description="Lot median and MAD envelopes")

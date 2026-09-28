@@ -252,3 +252,63 @@ Pulls components from PostgreSQL, fits Module A and Module B, applies the Unifie
 │ delay_ns   │  0.2222 ns │  1.7365 ns │  0.2776 ns │  2.1570 ns │     +87.2% │
 └────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘
 ```
+
+---
+
+## Phase 3: Local Deterministic Explainability & FastAPI Service Layer
+
+Phase 3 introduces a zero-dependency local deterministic explainability engine, immutable QA review audit trails, and an asynchronous FastAPI REST service layer.
+
+### Architecture Overview
+
+```
+                      FastAPI Application (Port 8000)
+                     [backend/app/main.py (CORS :3000)]
+                                     │
+      ┌──────────────────────────────┼──────────────────────────────┐
+      │                              │                              │
+[GET /lots]                    [GET /components]              [GET /metrics/benchmark]
+- Summary & triage counts      - Paginated search             - System Recall & FNR
+- Parametric distributions     - Time-series profile          - Model B MAE reduction
+                               - Deterministic explainer
+                               - POST /reviews/{id}/action
+                                     │
+                 ┌───────────────────┴───────────────────┐
+                 │                                       │
+     Deterministic Explainer                  Inspector Review Trail
+     [services/local_explainer.py]             [models/review.py]
+     - Robust MAD Z-scores                     - Badge ID & Timestamp
+     - Ledoit-Wolf Mahalanobis                 - Prior Verdict & Override
+     - Kinetic drift rates                     - Immutable Audit Ledger
+     - Zero external AI/LLMs
+```
+
+### Risk Classification Matrix
+
+| Risk Category | Criteria | Recommended Action |
+| :--- | :--- | :--- |
+| `CRITICAL_RUNAWAY` | Implied drift rate $\ge 0.20\,\mu\text{A/hr}$, predicted 168h leakage $\ge 50\,\mu\text{A}$, or datasheet ceiling breach | `QUARANTINE_FLIGHT_HARDWARE` |
+| `LATENT_LOT_OUTLIER` | Initial $0\text{h}$ excursion $\ge 4.0\,\text{MAD}$ above lot median or Module A score $\ge 0.85$ | `QUARANTINE_FLIGHT_HARDWARE` |
+| `SUBTLE_DEGRADATION` | Mahalanobis distance $D_M \ge 3.0$, multi-parameter elevation, or Module A flag active | `HOLD_FOR_96H_CHECK` |
+| `NOMINAL` | Parameters strictly within normal lot variance ($\pm 2.5\,\text{MAD}$), stable drift | `PASS_FLIGHT_READY` |
+
+### REST Endpoints Reference
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/health` | System health check and API version status |
+| `GET` | `/api/v1/lots` | Manufacturing lots with total, pass, review, and reject counts |
+| `GET` | `/api/v1/lots/{lot_id}/distribution` | Lot statistical envelope (min, p25, median, p75, max, MAD) per interval |
+| `GET` | `/api/v1/components` | Paginated component search filterable by `lot_id`, `verdict`, `ground_truth_flag` |
+| `GET` | `/api/v1/components/{id}/profile` | Component metadata, readings time series, lot bands, predictions, and review logs |
+| `GET` | `/api/v1/components/{id}/explain` | Deterministic local explanation with executive summary and technical Markdown |
+| `POST` | `/api/v1/reviews/{id}/action` | Submit QA inspector disposition (`ACCEPTED`, `QUARANTINED`, `RE_TEST`) with notes |
+| `GET` | `/api/v1/metrics/benchmark` | System-wide screening Recall, FNR, Precision, F1, and LightGBM MAE improvement |
+
+### Running the FastAPI Server
+
+```bash
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Interactive Swagger documentation is available at `http://localhost:8000/docs`.
+

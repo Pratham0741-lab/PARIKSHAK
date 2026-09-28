@@ -35,14 +35,13 @@ SessionLocal = sessionmaker(
     class_=Session,
 )
 
+from sqlalchemy.pool import NullPool
+
 # Asynchronous Engine and Session Factory (asyncpg)
-# Used by FastAPI asynchronous endpoints and event loops
+# Uses NullPool to prevent event-loop connection sharing conflicts in async runtimes & test suites
 async_engine: AsyncEngine = create_async_engine(
     settings.async_database_url,
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
-    pool_timeout=settings.DB_POOL_TIMEOUT,
-    pool_pre_ping=True,
+    poolclass=NullPool,
     echo=settings.DB_ECHO,
 )
 
