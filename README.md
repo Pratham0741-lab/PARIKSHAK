@@ -195,7 +195,7 @@ python -m alembic upgrade head
 ```bash
 python -m pytest -v
 ```
-All **18 unit and integration tests** execute across data generator physics, schema cascades, Module A, Module B, and the Verdict layer.
+All **32 unit, API, and E2E tests** execute across data generator physics, schema cascades, Module A, Module B, Verdict layer, local explainability, and the complete full-stack workflow.
 
 ### Step 5: Seed the Database
 ```bash
