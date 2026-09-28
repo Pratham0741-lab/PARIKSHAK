@@ -4,7 +4,7 @@ Component ORM Model for individual semiconductor units.
 
 import enum
 import uuid
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import Boolean, Enum as SAEnum, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -14,6 +14,7 @@ from backend.app.models.base import Base
 if TYPE_CHECKING:
     from backend.app.models.lot import Lot
     from backend.app.models.reading import BurnInReading
+    from backend.app.models.prediction import ModelPrediction
 
 
 class GroundTruthLabel(str, enum.Enum):
@@ -86,6 +87,14 @@ class Component(Base):
         passive_deletes=True,
         order_by="BurnInReading.interval_hours",
         doc="Time-series burn-in screening readings for this component",
+    )
+    prediction: Mapped[Optional["ModelPrediction"]] = relationship(
+        "ModelPrediction",
+        back_populates="component",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        doc="Unified screening model prediction and verdict",
     )
 
     __table_args__ = (
