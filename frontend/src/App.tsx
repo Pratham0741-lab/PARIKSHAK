@@ -15,16 +15,16 @@ export const App: React.FC = () => {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<WorkspaceLayout />}>
-          <Route index element={<DriftPredictorScreen />} />
-          <Route path="drift" element={<DriftPredictorScreen />} />
+          <Route index element={<LotOverviewScreen />} />
           <Route path="lots" element={<LotOverviewScreen />} />
+          <Route path="drift" element={<DriftPredictorScreen />} />
           <Route path="ingest" element={<DataIngestScreen />} />
           <Route path="outliers" element={<OutlierDetectionScreen />} />
           <Route path="components" element={<ComponentDetailScreen />} />
           <Route path="decisions" element={<DecisionQueueScreen />} />
           <Route path="model" element={<ModelPerformanceScreen />} />
           <Route path="reports" element={<AuditReportScreen />} />
-          <Route path="*" element={<Navigate to="/drift" replace />} />
+          <Route path="*" element={<Navigate to="/lots" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

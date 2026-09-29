@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import * as d3 from 'd3';
 import { useStore } from '../store/useStore';
@@ -7,6 +8,7 @@ import { calculateMedian, calculateMAD } from '../lib/analytics/robustZ';
 import { Search, ArrowUpDown } from 'lucide-react';
 
 export const LotOverviewScreen: React.FC = () => {
+  const navigate = useNavigate();
   const { parts, activeLot, selectedPartId, selectPart } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortColumn, setSortColumn] = useState<string>('partId');
@@ -312,6 +314,11 @@ export const LotOverviewScreen: React.FC = () => {
               <div
                 key={part.partId}
                 onClick={() => selectPart(part.partId)}
+                onDoubleClick={() => {
+                  selectPart(part.partId);
+                  navigate('/drift');
+                }}
+                title="Click to select, double-click to view drift trajectory"
                 style={{
                   position: 'absolute',
                   top: 0,

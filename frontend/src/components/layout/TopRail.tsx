@@ -41,7 +41,7 @@ export const TopRail: React.FC = () => {
           {navLinks.map(link => {
             const isActive =
               location.pathname === link.to ||
-              (link.to === '/drift' && location.pathname === '/');
+              (link.to === '/lots' && location.pathname === '/');
             return (
               <NavLink
                 key={link.to}
