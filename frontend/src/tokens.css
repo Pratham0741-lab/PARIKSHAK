@@ -1,0 +1,101 @@
+/* PARIKSHAK Aerospace Test-Engineering Design System Tokens */
+:root {
+  /* Surfaces */
+  --surface-workspace: #FFFFFF;
+  --surface-panel: #F1F3F4;
+  --surface-toprail: #1C2328;
+  --surface-pagebg: #D9DCDE;
+  --border-hairline: #C9CED2;
+  --border-hairline-subtle: #E2E5E7;
+
+  /* Text */
+  --text-main: #1C2328;
+  --text-muted: #5F6B73;
+  --text-dim: #8A949B;
+  --text-inverse: #FFFFFF;
+
+  /* Status Colors (Semantic Only) */
+  --status-reject: #D63A2F;
+  --status-reject-bg: #FDEDEC;
+  --status-review: #E0A100;
+  --status-review-bg: #FEF9E7;
+  --status-accept: #2E7D4F;
+  --status-accept-bg: #EAF5EE;
+
+  /* Chart Colors */
+  --chart-trace-neutral: #B0B7BC;
+  --chart-trace-selected: #D63A2F;
+  --chart-grid: #E5E8EB;
+  --chart-limit-static: #5F6B73;
+  --chart-limit-safety: #1C2328;
+
+  /* Typography */
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+  /* Grid & Dimensions */
+  --radius-sharp: 2px;
+  --row-height: 28px;
+}
+
+/* Global resets for dense instrument aesthetic */
+* {
+  box-shadow: none !important;
+  border-radius: 2px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--surface-pagebg);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* High density tabular numerals for engineering instrumentation */
+.font-mono, td, th, .tabular-nums {
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* Custom scrollbars for compact panel engineering views */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-panel);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-hairline);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* Print Styles for A4 Audit Document */
+@media print {
+  body {
+    background: #FFFFFF !important;
+    overflow: visible !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+}
