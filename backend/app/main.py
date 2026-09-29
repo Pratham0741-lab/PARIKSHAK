@@ -3,7 +3,15 @@ FastAPI Application Entry Point for ISRO SIH26170 Burn-In Screening & Analytics.
 Features CORS middleware, API v1 routing, health checks, and lifecycle management.
 """
 
+import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
+
+# Automatically bootstrap project root into sys.path to allow execution from either backend/ or repo root
+_project_root = str(Path(__file__).resolve().parent.parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
