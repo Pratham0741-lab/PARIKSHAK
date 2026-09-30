@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from backend.app.core.config import settings
 from backend.app.core.database import SessionLocal
 from backend.app.models import BurnInReading, Component, Lot
-from data_engine.generator import BurnInSyntheticGenerator
+from data_engine.physics_generator import make_generator
 
 console = Console(highlight=False)
 
@@ -59,6 +59,7 @@ def seed_database(
     batch_size: int = 2000,
     drop_existing: bool = True,
     dry_run: bool = False,
+    generator: str = "legacy",
 ) -> Dict[str, Any]:
     """
     Generates synthetic data and seeds the PostgreSQL database using bulk insert mappings.
@@ -79,7 +80,8 @@ def seed_database(
 
     # 1. Run the Synthetic Generator
     console.print("[cyan]-> Emulating semiconductor physics & trajectories...[/cyan]")
-    generator = BurnInSyntheticGenerator(
+    gen = make_generator(
+        generator,
         num_lots=num_lots,
         components_per_lot=components_per_lot,
         random_seed=random_seed,
@@ -87,7 +89,7 @@ def seed_database(
         iddq_max_ma=settings.DATASHEET_IDDQ_MAX_MA,
         delay_max_ns=settings.DATASHEET_DELAY_MAX_NS,
     )
-    records = generator.generate_records()
+    records = gen.generate_records()
     console.print("[green]✓ Physics emulation completed.[/green]")
 
     lots = records["lots"]
@@ -232,7 +234,7 @@ def main() -> None:
         "-l",
         type=int,
         default=settings.DEFAULT_NUM_LOTS,
-        help="Number of fabrication lots to emulate (default: 10)",
+        help="Number of fabrication lots (default: settings.DEFAULT_NUM_LOTS)",
     )
     parser.add_argument(
         "--components",
@@ -247,6 +249,13 @@ def main() -> None:
         type=int,
         default=settings.SYNTHETIC_RANDOM_SEED,
         help="Random seed for deterministic generation (default: 42)",
+    )
+    parser.add_argument(
+        "--generator",
+        "-g",
+        choices=("physics", "legacy"),
+        default=settings.DEFAULT_GENERATOR,
+        help="Synthetic generator (default: settings.DEFAULT_GENERATOR = physics)",
     )
     parser.add_argument(
         "--batch-size",
@@ -276,6 +285,7 @@ def main() -> None:
             batch_size=args.batch_size,
             drop_existing=not args.no_drop,
             dry_run=args.dry_run,
+            generator=args.generator,
         )
     except Exception as exc:
         console.print(f"[bold red]Execution error: {exc}[/bold red]")

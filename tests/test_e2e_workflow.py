@@ -12,9 +12,6 @@ Validates the complete full-stack lifecycle:
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -26,8 +23,6 @@ from backend.app.models.component import Component
 from backend.app.models.lot import Lot
 from backend.app.models.prediction import ModelPrediction
 from backend.app.models.reading import BurnInReading
-
-ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest_asyncio.fixture
@@ -133,11 +128,12 @@ async def test_full_pipeline_e2e_workflow(async_client: AsyncClient):
     assert bench_res.status_code == 200, f"Failed to get benchmarks: {bench_res.text}"
     bench_data = bench_res.json()
 
-    # Held-out gates. Every prediction must be out-of-fold, and the API's numbers must equal the
-    # committed held-out evaluation (reports/evaluation_results.json, same seed/config), which
-    # tests/test_evaluation_report.py proves is reproducible. The old gate (recall >= 0.80) was
-    # met only by scoring the model on its own training parts and has been removed.
-    reference = json.loads((ROOT / "reports" / "evaluation_results.json").read_text())["held_out"]
+    # Held-out gates. Every prediction must be out-of-fold, and the API's numbers must equal an
+    # independent fresh offline evaluation of the same pipeline on the same data (the test database is
+    # seeded with the pinned legacy protocol, see tests/conftest.py).
+    from evaluation.run import LEGACY_PROTOCOL, evaluate
+
+    reference = evaluate({**LEGACY_PROTOCOL}, include_train=False)["held_out"]
     assert bench_data["total_components"] == 1000
     assert bench_data["in_sample_predictions"] == 0
     assert bench_data["out_of_fold_predictions"] == 1000

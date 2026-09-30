@@ -8,6 +8,6 @@
     "min_child_samples": 30,
     "reg_lambda": 5.0
   },
-  "selected_by": "python -m evaluation.module_b_study (lot-grouped CV over all lots; see reports/module_b_study.json)",
+  "selected_by": "python -m evaluation.module_b_study --generator physics --quick (lot-grouped CV over all lots; see reports/module_b_study_physics.json)",
   "candidate_id": "v2-log_ratio-g2"
 }

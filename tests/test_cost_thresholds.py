@@ -135,3 +135,13 @@ def test_module_a_decision_statistic_matches_dev_study():
     assert study["selected"] == "sum_positive_z"
     best = max(study["mean_auc"], key=lambda k: study["mean_auc"][k]["auc_all"])
     assert best == study["selected"]
+
+
+def test_module_a_statistic_also_wins_on_physics_development_data():
+    from pathlib import Path
+
+    from backend.app.core.config import settings
+
+    study = json.loads((Path(__file__).resolve().parent.parent / "reports" / "module_a_dev_study_physics.json").read_text())
+    assert study["generator"] == "physics" and settings.SYNTHETIC_RANDOM_SEED not in study["dev_seeds"]
+    assert study["selected"] == "sum_positive_z" == max(study["mean_auc"], key=lambda k: study["mean_auc"][k]["auc_all"])

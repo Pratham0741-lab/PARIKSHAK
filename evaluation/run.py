@@ -3,7 +3,8 @@ Reproducible held-out evaluation of the screening system.
 
     python -m evaluation.run            # writes reports/evaluation_results.json + SIH26170_EVALUATION_REPORT.md
 
-Data: the seeded synthetic generator with the same configuration used to seed the database.
+Data: seeded synthetic generators with PINNED protocols (independent of .env): the physics
+generator (primary, 40 lots x 100 parts) and the legacy generator (10 x 100) for comparison.
 Split: GroupKFold over LOTS (every part is predicted by a model that never saw its lot).
 Held-out parts are predicted from 0h/24h readings only; labels and 168h values are held back
 and joined only in evaluation.score. A TRAIN (in-sample, optimistic) column is reported
@@ -25,7 +26,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.app.core.config import settings  # noqa: E402
-from data_engine.generator import BurnInSyntheticGenerator  # noqa: E402
+from data_engine.physics_generator import make_generator  # noqa: E402
 from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
@@ -35,14 +36,17 @@ from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E40
 
 REPORT_JSON = ROOT / "reports" / "evaluation_results.json"
 REPORT_MD = ROOT / "SIH26170_EVALUATION_REPORT.md"
-STUDY_JSON = ROOT / "reports" / "module_b_study.json"
+STUDY_JSON = {"legacy": ROOT / "reports" / "module_b_study.json",
+              "physics": ROOT / "reports" / "module_b_study_physics.json"}
+
+# Pinned evaluation protocols: numbers in the report must not depend on local .env seeding defaults.
+PRIMARY_PROTOCOL = {"generator": "physics", "seed": 42, "num_lots": 40, "components_per_lot": 100}
+LEGACY_PROTOCOL = {"generator": "legacy", "seed": 42, "num_lots": 10, "components_per_lot": 100}
 
 
 def default_config() -> Dict[str, Any]:
     return {
-        "seed": settings.SYNTHETIC_RANDOM_SEED,
-        "num_lots": settings.DEFAULT_NUM_LOTS,
-        "components_per_lot": settings.DEFAULT_COMPONENTS_PER_LOT,
+        **PRIMARY_PROTOCOL,
         "n_splits": 5,
         "fn_cost": settings.FN_COST,
         "fp_cost": settings.FP_COST,
@@ -61,10 +65,8 @@ def model_factory(cfg: Dict[str, Any], strategy: str | None = None):
 
 
 def generate(cfg: Dict[str, Any]) -> pd.DataFrame:
-    return BurnInSyntheticGenerator(
-        num_lots=cfg["num_lots"],
-        components_per_lot=cfg["components_per_lot"],
-        random_seed=cfg["seed"],
+    return make_generator(
+        cfg["generator"], num_lots=cfg["num_lots"], components_per_lot=cfg["components_per_lot"], random_seed=cfg["seed"],
     ).generate_dataset()
 
 
@@ -111,6 +113,7 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
                  "validation_recall": cf.models[f.fold].thresholds_["validation"]["recall"]}
                 for f in cf.folds
             ],
+            "threshold_variance": _threshold_variance(cf),
         },
         "held_out": score(cf.predictions, truth, cost_of(cfg)),
     }
@@ -133,8 +136,9 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
         "detection": {k: alt_score["detection"][k] for k in ("recall", "precision", "f2", "weighted_cost", "fn", "fp")},
         "module_b_disabled_folds": sum(1 for m in cf_alt.models.values() if m.thresholds_["threshold_b"] == float("inf")),
     }
-    if STUDY_JSON.exists():
-        study = json.loads(STUDY_JSON.read_text(encoding="utf-8"))
+    study_path = STUDY_JSON[cfg["generator"]]
+    if study_path.exists():
+        study = json.loads(study_path.read_text(encoding="utf-8"))
         results["module_b_selection"] = {
             "production_choice": study["production_choice"]["id"],
             "nested_estimate": study["nested_estimate"]["metrics"],
@@ -154,11 +158,94 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
     return results
 
 
+def _threshold_variance(cf) -> Dict[str, Any]:
+    """Spread of the per-fold chosen thresholds (each fold chooses on its own inner CV)."""
+    import numpy as np
+
+    out: Dict[str, Any] = {}
+    for key in ("threshold_a", "threshold_b"):
+        vals = np.array([m.thresholds_[key] for m in cf.models.values()], dtype=float)
+        fin = vals[np.isfinite(vals)]
+        out[key] = {"n_folds": int(len(vals)), "n_disabled": int((~np.isfinite(vals)).sum()),
+                    "mean": float(fin.mean()) if len(fin) else None, "std": float(fin.std(ddof=1)) if len(fin) > 1 else None,
+                    "min": float(fin.min()) if len(fin) else None, "max": float(fin.max()) if len(fin) else None}
+    return out
+
+
+def evaluate_all(out_dir: Path | None = None) -> Dict[str, Any]:
+    """Primary (physics) protocol plus the legacy-generator comparison."""
+    return {"primary": evaluate(out_dir=out_dir), "legacy": evaluate({**LEGACY_PROTOCOL})}
+
+
 def _pct(x: float) -> str:
     return f"{100 * x:.1f}%"
 
 
-def render_markdown(res: Dict[str, Any]) -> str:
+def render_markdown(all_res: Dict[str, Any]) -> str:
+    """Primary (physics) report followed by the legacy-generator comparison."""
+    return _render_one(all_res["primary"]) + "\n" + _render_comparison(all_res["primary"], all_res["legacy"])
+
+
+def _render_comparison(pri: Dict[str, Any], leg: Dict[str, Any]) -> str:
+    def row(name, f):
+        return f"| {name} | **{f(pri)}** | {f(leg)} |"
+
+    def det(k, fmt=_pct):
+        return lambda r: fmt(r["held_out"]["detection"][k])
+
+    def tv(key):
+        def f(r):
+            v = r["split"]["threshold_variance"][key]
+            if v["mean"] is None:
+                return f"disabled in {v['n_disabled']}/{v['n_folds']} folds"
+            sd = "n/a" if v["std"] is None else f"{v['std']:.3f}"
+            return f"{v['mean']:.3f} +/- {sd} (range {v['min']:.3f}-{v['max']:.3f}; off in {v['n_disabled']})"
+        return f
+
+    lk = "leakage_current_ua"
+    lines = [
+        "## Generator comparison: physics (primary) vs legacy",
+        "",
+        "**The generator change alters every number in this report.** The physics generator (log-normal lots,",
+        "temperature-dependent Arrhenius baselines, power-law drift, heteroscedastic noise, latent parts with",
+        "clear / partial / no signal by 24h) is a different, harder and larger problem than the legacy generator.",
+        "Numbers from the two generators are not comparable as \"improvement\" or \"regression\"; both are listed",
+        "so the effect of the data change is visible. The pipeline and its configuration are identical.",
+        "",
+        "| Held-out metric | Physics (primary) | Legacy |",
+        "|---|---:|---:|",
+        row("Lots / parts / defective", lambda r: f"{r['split']['n_lots']} / {r['split']['n_parts']} / {r['split']['n_defective']}"),
+        row("Recall", det("recall")),
+        row("Precision", det("precision")),
+        row("F2", det("f2")),
+        row("Weighted cost", det("weighted_cost", lambda v: f"{v:g}")),
+        row("Cost of flagging every part", lambda r: f"{r['held_out']['trivial_policies']['flag_all_parts']['weighted_cost']:g}"),
+        row("Cost per 1,000 parts", det("cost_per_1000_parts", lambda v: f"{v:g}")),
+        row("Leakage 168h MAE (uA)", lambda r: f"{r['held_out']['regression'][lk]['model']['mae']:.4f}"),
+        row("Leakage 168h RMSE (uA)", lambda r: f"{r['held_out']['regression'][lk]['model']['rmse']:.4f}"),
+        row("Linear baseline MAE (uA)", lambda r: f"{r['held_out']['regression'][lk]['linear_baseline']['mae']:.4f}"),
+        row("90% interval coverage (leakage)", lambda r: _pct(r["held_out"]["regression"][lk]["interval"]["empirical_coverage"])),
+        row("LATE_DRIFT catch rate", lambda r: _pct(r["held_out"]["per_class"].get("LATE_DRIFT", {"flagged_rate": 0})["flagged_rate"])),
+        row("Threshold A across folds", tv("threshold_a")),
+        row("Threshold B (k) across folds", tv("threshold_b")),
+        "",
+    ]
+    sig = pri["held_out"].get("per_signal_24h")
+    if sig:
+        lines += ["Physics generator, drift-defect catch rate by signal present at 24h (held-out):", "",
+                  "| 24h signal | Parts | Flagged |", "|---|---:|---:|"]
+        for k in ("clear", "partial", "none"):
+            if k in sig:
+                lines.append(f"| {k} | {sig[k]['n']} | {_pct(sig[k]['flagged_rate'])} |")
+        norm = pri["held_out"]["per_class"].get("NORMAL")
+        if norm:
+            lines.append(f"| reference: NORMAL parts (false-alarm rate) | {norm['n']} | {_pct(norm['flagged_rate'])} |")
+        lines += ["", "A catch rate close to the NORMAL false-alarm rate means the method has no real signal for that group."]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _render_one(res: Dict[str, Any]) -> str:
     cfg, split, ho = res["config"], res["split"], res["held_out"]
     tr = res.get("train_optimistic")
     lines = [
@@ -170,7 +257,7 @@ def render_markdown(res: Dict[str, Any]) -> str:
         "",
         "## Protocol",
         "",
-        f"- Data: seeded synthetic generator, seed **{cfg['seed']}**, **{split['n_lots']} lots**, "
+        f"- Data: seeded synthetic generator **{cfg['generator']}**, seed **{cfg['seed']}**, **{split['n_lots']} lots**, "
         f"**{split['n_parts']} parts** ({split['n_defective']} labelled defective).",
         f"- Split: {split['method']}; **{cfg['n_splits']} folds**.",
         "- Each held-out part is predicted by a model trained on other lots only, using its 0h/24h readings.",
@@ -289,7 +376,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-write", action="store_true", help="print only; do not overwrite report files")
     args = ap.parse_args(argv)
 
-    res = json.loads(json.dumps(evaluate(out_dir=ROOT / "reports"), sort_keys=True))
+    res = json.loads(json.dumps(evaluate_all(out_dir=ROOT / "reports"), sort_keys=True))
     md = render_markdown(res)
     if not args.no_write:
         REPORT_JSON.parent.mkdir(parents=True, exist_ok=True)

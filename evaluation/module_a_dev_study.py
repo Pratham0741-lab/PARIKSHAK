@@ -25,13 +25,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.app.core.config import settings  # noqa: E402
-from data_engine.generator import BurnInSyntheticGenerator  # noqa: E402
+from data_engine.physics_generator import make_generator  # noqa: E402
 from ml_engine.features import PARAMETERS  # noqa: E402
 from ml_engine.module_a_outlier import LotOutlierDetector  # noqa: E402
 from ml_engine.screening import early_readings_only  # noqa: E402
 
 DEV_SEEDS = (101, 202, 303)
-OUT = ROOT / "reports" / "module_a_dev_study.json"
+OUT = {"legacy": ROOT / "reports" / "module_a_dev_study.json",
+       "physics": ROOT / "reports" / "module_a_dev_study_physics.json"}
 CLASSES = ("LEVEL_OUTLIER", "SUBTLE_MULTIVARIATE", "STEEP_DRIFT", "LATE_DRIFT")
 
 
@@ -48,13 +49,15 @@ def candidates(r: pd.DataFrame) -> dict:
     }
 
 
-def run() -> dict:
+def run(generator: str = "legacy") -> dict:
     assert settings.SYNTHETIC_RANDOM_SEED not in DEV_SEEDS, "development seeds must differ from the evaluation seed"
     rows = []
     for seed in DEV_SEEDS:
-        df = BurnInSyntheticGenerator(num_lots=10, components_per_lot=100, random_seed=seed).generate_dataset()
+        n_lots = 10 if generator == "legacy" else 12
+        df = make_generator(generator, num_lots=n_lots, components_per_lot=100, random_seed=seed).generate_dataset()
         lots = sorted(df["lot_id"].unique())
-        fit_df, score_df = df[df["lot_id"].isin(lots[:6])], df[df["lot_id"].isin(lots[6:])]
+        n_fit = int(round(0.6 * len(lots)))
+        fit_df, score_df = df[df["lot_id"].isin(lots[:n_fit])], df[df["lot_id"].isin(lots[n_fit:])]
         det = LotOutlierDetector().fit(early_readings_only(fit_df))
         r = det.predict(early_readings_only(score_df)).set_index("component_id")
         meta = score_df.drop_duplicates("component_id").set_index("component_id")
@@ -69,6 +72,7 @@ def run() -> dict:
     table = pd.DataFrame(rows).groupby("score").mean(numeric_only=True).drop(columns="seed")
     best = table["auc_all"].idxmax()
     return {
+        "generator": generator,
         "dev_seeds": list(DEV_SEEDS),
         "evaluation_seed_excluded": settings.SYNTHETIC_RANDOM_SEED,
         "criterion": "mean ROC-AUC (defective vs normal) over development datasets",
@@ -78,9 +82,14 @@ def run() -> dict:
 
 
 def main() -> int:
-    res = run()
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(res, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--generator", choices=("legacy", "physics"), default="legacy")
+    res = run(ap.parse_args().generator)
+    out = OUT[res["generator"]]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     for k, v in sorted(res["mean_auc"].items(), key=lambda kv: kv[1]["auc_all"]):
         print(f"{k:18s} all={v['auc_all']:.3f}  " + "  ".join(f"{c[:6]}={v['auc_' + c]:.3f}" for c in CLASSES))
     print("selected:", res["selected"])

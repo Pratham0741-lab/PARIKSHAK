@@ -83,7 +83,8 @@ def isolated_test_database():
     from data_engine.seed_db import seed_database
     from ml_engine.run_screening import run_pipeline
 
-    seed_database(num_lots=10, components_per_lot=100, random_seed=42)
+    # Fixed, small test fixture (legacy generator, 10 lots x 100); independent of .env seeding defaults.
+    seed_database(num_lots=10, components_per_lot=100, random_seed=42, generator="legacy")
     run_pipeline(persist=True)
     yield
     from backend.app.core.database import engine

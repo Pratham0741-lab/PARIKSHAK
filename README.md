@@ -51,9 +51,12 @@ cd frontend && node scripts/screenshots.mjs # all 8 screens -> reports/screensho
 ## How it works
 
 **Data.** Each part has leakage current (µA), IDDQ (mA) and propagation delay (ns) at 0h, 24h, 96h
-and 168h of burn-in (`burn_in_readings`). The seeded generator (`data_engine/generator.py`) produces
-labelled lots, including benign high-baseline lots and defect classes that stay below the datasheet
-limit. CSV ingest (`POST /api/v1/ingest`) stores unlabelled production lots; missing cells are
+and 168h of burn-in (`burn_in_readings`); each lot stores its test conditions (temperature, monitored
+parameter, unit, static limit; defaulted values are flagged "assumed"). Two seeded generators:
+`physics` (default, `data_engine/physics_generator.py`: log-normal lots, Arrhenius temperature
+dependence, power-law drift, heteroscedastic noise, latent parts with clear/partial/no 24h signal,
+40 lots) and `legacy` (`data_engine/generator.py`, `--generator legacy`). The evaluation report runs a
+pinned protocol for each and lists them side by side. CSV ingest (`POST /api/v1/ingest`) stores unlabelled production lots; missing cells are
 imputed with the lot median and flagged (never zero-filled), and parts missing a 0h/24h value are
 sent to REVIEW without a model score.
 

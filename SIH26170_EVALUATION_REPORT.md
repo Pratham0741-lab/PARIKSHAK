@@ -6,7 +6,7 @@ fails if a fresh run does not reproduce them exactly.
 
 ## Protocol
 
-- Data: seeded synthetic generator, seed **42**, **10 lots**, **1000 parts** (96 labelled defective).
+- Data: seeded synthetic generator **physics**, seed **42**, **40 lots**, **4000 parts** (420 labelled defective).
 - Split: GroupKFold over lots (lot-level cross-fitting); 96h/168h and labels hidden at prediction time; **5 folds**.
 - Each held-out part is predicted by a model trained on other lots only, using its 0h/24h readings.
 - Ground truth (labels, true 168h values) is joined only at scoring time (`python -m evaluation.score`).
@@ -21,61 +21,97 @@ fails if a fresh run does not reproduce them exactly.
 
 | Fold | Train lots | Test lots | Test parts | Chosen threshold A | Chosen threshold B | Inner-CV recall |
 |---:|---:|---:|---:|---:|---:|---:|
-| 0 | 8 | 2 | 200 | 1.6621 | 2.5803 | 86.9% |
-| 1 | 8 | 2 | 200 | 2.0489 | 8.2425 | 86.1% |
-| 2 | 8 | 2 | 200 | 2.1015 | 2.5465 | 85.7% |
-| 3 | 8 | 2 | 200 | 2.0345 | 6.762 | 84.7% |
-| 4 | 8 | 2 | 200 | 2.9303 | 7.5169 | 76.4% |
+| 0 | 32 | 8 | 800 | 1.2678 | 2.7483 | 84.8% |
+| 1 | 32 | 8 | 800 | 1.3408 | 1.8925 | 85.3% |
+| 2 | 32 | 8 | 800 | 1.2795 | 1.5014 | 88.1% |
+| 3 | 32 | 8 | 800 | 1.2756 | 1.2542 | 90.6% |
+| 4 | 32 | 8 | 800 | 1.2701 | 2.575 | 86.4% |
 
 ## Anomaly detection (flag = verdict REVIEW or REJECT)
 
 | Metric | Held-out lots | TRAIN (optimistic) |
 |---|---:|---:|
-| Recall | **78.1%** | 92.7% |
-| Precision | **20.1%** | 23.4% |
-| F2 (beta=2) | **49.5%** | 58.2% |
-| F1 | **32.0%** | 37.4% |
-| Weighted cost (FN x20 + FP x1) | **718.0** | 431.0 |
-| Weighted cost per 1,000 parts | **718.0** | 431.0 |
-| Reference: cost of flagging EVERY part | 904 | 904 |
-| Reference: cost of flagging NO part | 1920 | 1920 |
-| False-negative rate | **21.9%** | 7.3% |
-| TP | **75** | 89 |
-| FN (escapes) | **21** | 7 |
-| FP | **298** | 291 |
-| TN | **606** | 613 |
+| Recall | **86.4%** | 89.8% |
+| Precision | **15.6%** | 16.6% |
+| F2 (beta=2) | **45.4%** | 47.7% |
+| F1 | **26.5%** | 28.0% |
+| Weighted cost (FN x20 + FP x1) | **3099.0** | 2758.0 |
+| Weighted cost per 1,000 parts | **774.75** | 689.5 |
+| Reference: cost of flagging EVERY part | 3580 | 3580 |
+| Reference: cost of flagging NO part | 8400 | 8400 |
+| False-negative rate | **13.6%** | 10.2% |
+| TP | **363** | 377 |
+| FN (escapes) | **57** | 43 |
+| FP | **1959** | 1898 |
+| TN | **1621** | 1682 |
 
-Alternative threshold strategy **joint** under the same held-out protocol: recall 78.1%, precision 20.6%, F2 50.1%, weighted cost 709 (FN 21, FP 289); Module B's slope rule was disabled (k = +inf) in 5 of 5 folds.
+Alternative threshold strategy **joint** under the same held-out protocol: recall 78.8%, precision 19.2%, F2 48.6%, weighted cost 3172 (FN 89, FP 1392); Module B's slope rule was disabled (k = +inf) in 0 of 5 folds.
 
 ### Catch rate by defect class (held-out)
 
 | Class | Parts | Flagged (held-out) | Flagged (TRAIN) |
 |---|---:|---:|---:|
-| `LATE_DRIFT` | 24 | **37.5%** | 87.5% |
-| `LEVEL_OUTLIER` | 24 | **87.5%** | 95.8% |
-| `NORMAL` | 904 | **33.0%** | 32.2% |
-| `STEEP_DRIFT` | 24 | **100.0%** | 100.0% |
-| `SUBTLE_MULTIVARIATE` | 24 | **87.5%** | 87.5% |
+| `LATE_DRIFT` | 72 | **59.7%** | 72.2% |
+| `LEVEL_OUTLIER` | 88 | **100.0%** | 100.0% |
+| `NORMAL` | 3580 | **54.7%** | 53.0% |
+| `STEEP_DRIFT` | 179 | **84.4%** | 87.2% |
+| `SUBTLE_MULTIVARIATE` | 81 | **100.0%** | 100.0% |
 
 ## Module B: 168h forecast accuracy
 
 | Parameter | Held-out MAE | Held-out RMSE | Linear baseline MAE (held-out) | TRAIN MAE (optimistic) | 90% interval: held-out coverage | Mean width (min-max) |
 |---|---:|---:|---:|---:|---:|---:|
-| `leakage_current_ua` | **1.9299** | 5.1124 | 5.9695 | 1.4276 | **89.0%** | 7.477 (1.455-51.696) |
-| `iddq_ma` | **0.0918** | 0.1260 | 0.6081 | 0.0667 | **91.5%** | 0.411 (0.237-0.961) |
-| `propagation_delay_ns` | **0.2059** | 0.2612 | 1.6873 | 0.1516 | **90.9%** | 0.884 (0.630-1.245) |
+| `leakage_current_ua` | **1.9059** | 6.1036 | 3.6765 | 1.6866 | **90.4%** | 6.048 (0.273-193.993) |
+| `iddq_ma` | **0.1490** | 0.5415 | 0.3419 | 0.1294 | **91.0%** | 0.426 (0.046-13.721) |
+| `propagation_delay_ns` | **0.0342** | 0.0431 | 0.2424 | 0.0309 | **90.5%** | 0.146 (0.107-0.219) |
 
 ### Module B model selection (nested lot-grouped CV, `python -m evaluation.module_b_study`)
 
-15 candidates (feature set v1/v2 x target raw/drift/log-ratio x LightGBM grid) were
+7 candidates (feature set v1/v2 x target raw/drift/log-ratio x LightGBM grid) were
 compared. In each outer fold an inner lot-grouped CV over that fold's training lots picked the
-candidate (choices: v2-log_ratio-g0, v2-log_ratio-g0, v2-log_ratio-g0, v2-log_ratio-g1, v2-log_ratio-g0); it was then scored on the untouched outer lots.
+candidate (choices: v2-log_ratio-g2, v2-log_ratio-g2, v2-log_ratio-g2, v2-log_ratio-g2, v2-log_ratio-g2); it was then scored on the untouched outer lots.
 The production configuration (`v2-log_ratio-g2`, `ml_engine/module_b_config.json`) was chosen
 by lot-grouped CV over all lots, so the fixed-config MAE in the table above is slightly optimistic
 for that choice; the nested column below is the unbiased estimate.
 
 | Parameter | Nested MAE (selection inside CV) | Original model (v1, raw target) | Linear baseline |
 |---|---:|---:|---:|
-| `leakage_current_ua` | **2.0404** | 3.3578 | 5.9695 |
-| `iddq_ma` | **0.0927** | 0.1011 | 0.6081 |
-| `propagation_delay_ns` | **0.2112** | 0.2255 | 1.6873 |
+| `leakage_current_ua` | **1.9059** | 2.6223 | 3.6765 |
+| `iddq_ma` | **0.1490** | 0.1977 | 0.3419 |
+| `propagation_delay_ns` | **0.0342** | 0.0374 | 0.2424 |
+
+## Generator comparison: physics (primary) vs legacy
+
+**The generator change alters every number in this report.** The physics generator (log-normal lots,
+temperature-dependent Arrhenius baselines, power-law drift, heteroscedastic noise, latent parts with
+clear / partial / no signal by 24h) is a different, harder and larger problem than the legacy generator.
+Numbers from the two generators are not comparable as "improvement" or "regression"; both are listed
+so the effect of the data change is visible. The pipeline and its configuration are identical.
+
+| Held-out metric | Physics (primary) | Legacy |
+|---|---:|---:|
+| Lots / parts / defective | **40 / 4000 / 420** | 10 / 1000 / 96 |
+| Recall | **86.4%** | 78.1% |
+| Precision | **15.6%** | 20.1% |
+| F2 | **45.4%** | 49.5% |
+| Weighted cost | **3099** | 718 |
+| Cost of flagging every part | **3580** | 904 |
+| Cost per 1,000 parts | **774.75** | 718 |
+| Leakage 168h MAE (uA) | **1.9059** | 1.9299 |
+| Leakage 168h RMSE (uA) | **6.1036** | 5.1124 |
+| Linear baseline MAE (uA) | **3.6765** | 5.9695 |
+| 90% interval coverage (leakage) | **90.4%** | 89.0% |
+| LATE_DRIFT catch rate | **59.7%** | 37.5% |
+| Threshold A across folds | **1.287 +/- 0.031 (range 1.268-1.341; off in 0)** | 2.155 +/- 0.467 (range 1.662-2.930; off in 0) |
+| Threshold B (k) across folds | **1.994 +/- 0.653 (range 1.254-2.748; off in 0)** | 5.530 +/- 2.758 (range 2.546-8.242; off in 0) |
+
+Physics generator, drift-defect catch rate by signal present at 24h (held-out):
+
+| 24h signal | Parts | Flagged |
+|---|---:|---:|
+| clear | 98 | 88.8% |
+| partial | 70 | 82.9% |
+| none | 83 | 59.0% |
+| reference: NORMAL parts (false-alarm rate) | 3580 | 54.7% |
+
+A catch rate close to the NORMAL false-alarm rate means the method has no real signal for that group.

@@ -32,12 +32,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from evaluation.run import default_config, generate  # noqa: E402
+from evaluation.run import LEGACY_PROTOCOL, PRIMARY_PROTOCOL, STUDY_JSON, default_config, generate  # noqa: E402
 from evaluation.splits import lot_group_kfold  # noqa: E402
 from ml_engine.features import PARAMETERS, build_early_features, extract_targets, feature_columns  # noqa: E402
 from ml_engine.module_b_drift import CONFIG_PATH, DriftPredictor, from_target, to_target  # noqa: E402
-
-STUDY_JSON = ROOT / "reports" / "module_b_study.json"
 
 LGB_GRID: List[Dict[str, Any]] = [
     {"n_estimators": 100, "learning_rate": 0.05, "min_child_samples": 5},  # original setting
@@ -107,8 +105,14 @@ def _cv_criterion(data: Data, cand, lots, n_splits: int, seed: int) -> float:
     return _criterion(data, ids, {p: np.concatenate(v) for p, v in preds.items()})
 
 
-def run_study(cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
+# Reduced grid for the larger physics dataset (runtime): the original model plus the v2 feature set with
+# every target and two LightGBM settings. Documented in the study JSON ("candidates").
+QUICK_IDS = ("v1-raw-g0", "v2-raw-g0", "v2-raw-g2", "v2-drift-g0", "v2-drift-g2", "v2-log_ratio-g0", "v2-log_ratio-g2")
+
+
+def run_study(cfg: Dict[str, Any] | None = None, candidates=None, inner_folds: int = 4) -> Dict[str, Any]:
     cfg = {**default_config(), **(cfg or {})}
+    CANDIDATES = candidates or globals()["CANDIDATES"]  # noqa: N806
     seed = cfg["seed"]
     data = Data(generate(cfg))
     lots = sorted(data.lot.unique())
@@ -120,7 +124,7 @@ def run_study(cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
     all_ids, chosen = [], []
     for f in outer:
         tr_lots = sorted(f.train_lots)
-        scores = {c["id"]: _cv_criterion(data, c, tr_lots, 4, seed) for c in CANDIDATES}
+        scores = {c["id"]: _cv_criterion(data, c, tr_lots, inner_folds, seed) for c in CANDIDATES}
         best = min(CANDIDATES, key=lambda c: (scores[c["id"]], c["id"]))
         chosen.append({"fold": f.fold, "chosen": best["id"], "inner_criterion": scores[best["id"]]})
         tr, te = data.rows(f.train_lots), data.rows(f.test_lots)
@@ -148,8 +152,8 @@ def run_study(cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
     final = min(CANDIDATES, key=lambda c: (final_scores[c["id"]], c["id"]))
 
     return {
-        "config": {"seed": seed, "num_lots": cfg["num_lots"], "components_per_lot": cfg["components_per_lot"],
-                   "outer_folds": cfg["n_splits"], "inner_folds": 4,
+        "config": {"generator": cfg["generator"], "seed": seed, "num_lots": cfg["num_lots"],
+                   "components_per_lot": cfg["components_per_lot"], "outer_folds": cfg["n_splits"], "inner_folds": inner_folds,
                    "criterion": "mean over parameters of MAE / linear-baseline MAE"},
         "candidates": [{k: c[k] for k in ("id", "feature_set", "target", "lgb_params")} for c in CANDIDATES],
         "nested_estimate": {"per_fold_choice": chosen, "metrics": summary(nested)},
@@ -172,13 +176,23 @@ def _round(o, nd=4):
 
 
 def main() -> int:
-    res = _round(run_study())
-    STUDY_JSON.parent.mkdir(parents=True, exist_ok=True)
-    STUDY_JSON.write_text(json.dumps(res, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--generator", choices=("physics", "legacy"), default="physics")
+    ap.add_argument("--quick", action="store_true", help=f"reduced candidate grid {QUICK_IDS} and 3 inner folds")
+    args = ap.parse_args()
+    protocol = PRIMARY_PROTOCOL if args.generator == "physics" else LEGACY_PROTOCOL
+    cands = [c for c in CANDIDATES if c["id"] in QUICK_IDS] if args.quick else CANDIDATES
+    res = _round(run_study({**protocol}, candidates=cands, inner_folds=3 if args.quick else 4))
+    out = STUDY_JSON[args.generator]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     choice = next(c for c in CANDIDATES if c["id"] == res["production_choice"]["id"])
     CONFIG_PATH.write_text(json.dumps({
         "feature_set": choice["feature_set"], "target": choice["target"], "lgb_params": choice["lgb_params"],
-        "selected_by": "python -m evaluation.module_b_study (lot-grouped CV over all lots; see reports/module_b_study.json)",
+        "selected_by": f"python -m evaluation.module_b_study --generator {args.generator}"
+                       f"{' --quick' if args.quick else ''} (lot-grouped CV over all lots; see {out.relative_to(ROOT).as_posix()})",
         "candidate_id": choice["id"],
     }, indent=2) + "\n", encoding="utf-8")
 

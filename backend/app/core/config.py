@@ -49,7 +49,8 @@ class Settings(BaseSettings):
     REDIS_URL: Optional[str] = None
 
     # Synthetic Data Defaults
-    DEFAULT_NUM_LOTS: int = 10
+    DEFAULT_GENERATOR: str = "physics"  # physics | legacy (data_engine/physics_generator.py)
+    DEFAULT_NUM_LOTS: int = 40
     DEFAULT_COMPONENTS_PER_LOT: int = 100
     SYNTHETIC_RANDOM_SEED: int = 42
 

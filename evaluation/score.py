@@ -71,6 +71,12 @@ def score(predictions: pd.DataFrame, truth: pd.DataFrame, cost: CostConfig | Non
             flagged = y_pred.loc[grp.index]
             per_class[str(label)] = {"n": int(len(grp)), "flagged_rate": float(flagged.mean())}
         result["per_class"] = per_class
+    if "latent_signal_24h" in scored.columns:
+        # Catch rate of drift defects by how much signal they carry at 24h (physics generator).
+        per_signal = {}
+        for sig, grp in scored[scored["latent_signal_24h"].notna()].groupby("latent_signal_24h"):
+            per_signal[str(sig)] = {"n": int(len(grp)), "flagged_rate": float(y_pred.loc[grp.index].mean())}
+        result["per_signal_24h"] = per_signal
 
     regression: Dict[str, Any] = {}
     for p in PARAMETERS:
