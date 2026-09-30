@@ -423,3 +423,30 @@ async def test_api_benchmark_metrics(async_client: AsyncClient):
     assert "REJECT" in metrics["triage_distribution"]
     assert metrics["module_b_mae_leakage"] > 0.0
     assert metrics["mae_reduction_pct"] > 0.0  # LightGBM outperforms linear baseline
+
+
+@pytest.mark.asyncio
+async def test_api_benchmark_cost_fields_are_computed(async_client: AsyncClient):
+    """Weighted cost is recomputed from the confusion matrix and responds to the cost query params."""
+    m = (await async_client.get("/api/v1/metrics/benchmark")).json()
+    assert m["weighted_cost"] == pytest.approx(m["fn_cost"] * m["false_negatives"] + m["fp_cost"] * m["false_positives"])
+    assert m["cost_per_1000_parts"] == pytest.approx(1000 * m["weighted_cost"] / m["total_components"], abs=1e-3)
+    p, r = m["precision"], m["recall"]
+    assert m["f2_score"] == pytest.approx(5 * p * r / (4 * p + r), abs=1e-3)
+    assert m["final_thresholds"]["source"] == "cost_minimised_on_inner_oof_validation"
+
+    m100 = (await async_client.get("/api/v1/metrics/benchmark", params={"fn_cost": 100, "fp_cost": 1})).json()
+    assert m100["weighted_cost"] == pytest.approx(100 * m100["false_negatives"] + m100["false_positives"])
+
+
+@pytest.mark.asyncio
+async def test_api_cost_curve(async_client: AsyncClient):
+    for module in ("A", "B"):
+        res = await async_client.get("/api/v1/metrics/cost-curve", params={"module": module, "points": 30})
+        assert res.status_code == 200
+        curve = res.json()
+        assert curve["module"] == module and len(curve["points"]) >= 5
+        for pt in curve["points"]:
+            assert pt["weighted_cost"] == pytest.approx(curve["fn_cost"] * pt["fn"] + curve["fp_cost"] * pt["fp"])
+        fns = [pt["fn"] for pt in curve["points"]]
+        assert fns == sorted(fns)  # raising the swept threshold can only add escapes

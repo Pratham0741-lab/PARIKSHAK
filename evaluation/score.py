@@ -18,7 +18,8 @@ from typing import Any, Dict
 
 import pandas as pd
 
-from evaluation.metrics import detection_metrics, regression_metrics
+from evaluation.cost import CostConfig, cost_report
+from evaluation.metrics import regression_metrics
 from ml_engine.features import PARAMETERS
 
 PRED_COLUMN = {
@@ -34,7 +35,8 @@ def _flag(preds: pd.DataFrame) -> pd.Series:
     return preds["verdict"].isin(["REVIEW", "REJECT"])
 
 
-def score(predictions: pd.DataFrame, truth: pd.DataFrame) -> Dict[str, Any]:
+def score(predictions: pd.DataFrame, truth: pd.DataFrame, cost: CostConfig | None = None) -> Dict[str, Any]:
+    cost = cost or CostConfig()
     preds = predictions.copy()
     preds["component_id"] = preds["component_id"].astype(str)
     tr = truth.copy()
@@ -53,7 +55,7 @@ def score(predictions: pd.DataFrame, truth: pd.DataFrame) -> Dict[str, Any]:
         "n_predictions": int(len(preds)),
         "n_scored": int(len(scored)),
         "n_excluded_no_truth": int((~has_truth).sum()),
-        "detection": detection_metrics(y_true.to_numpy(), y_pred.to_numpy()),
+        "detection": cost_report(y_true.to_numpy(), y_pred.to_numpy(), cost),
     }
 
     if "ground_truth_label" in scored.columns:
@@ -82,12 +84,17 @@ def main(argv=None) -> int:
     ap.add_argument("--predictions", required=True)
     ap.add_argument("--truth", required=True)
     ap.add_argument("--json", help="write full metrics JSON here")
+    ap.add_argument("--fn-cost", type=float, default=None, help="cost of a missed defect (default from settings: 20)")
+    ap.add_argument("--fp-cost", type=float, default=None, help="cost of a false alarm (default from settings: 1)")
     args = ap.parse_args(argv)
 
-    res = score(pd.read_csv(args.predictions), pd.read_csv(args.truth))
+    cfg = CostConfig.from_settings(fn_cost=args.fn_cost, fp_cost=args.fp_cost)
+    res = score(pd.read_csv(args.predictions), pd.read_csv(args.truth), cfg)
     d = res["detection"]
     print(f"scored parts: {res['n_scored']} (excluded without truth: {res['n_excluded_no_truth']})")
-    print(f"TP={d['tp']} FN={d['fn']} FP={d['fp']} TN={d['tn']}  recall={d['recall']:.4f}  precision={d['precision']:.4f}")
+    print(f"TP={d['tp']} FN={d['fn']} FP={d['fp']} TN={d['tn']}  recall={d['recall']:.4f}  precision={d['precision']:.4f}  F2={d['f2']:.4f}")
+    print(f"weighted cost={d['weighted_cost']:.1f} (FN_COST={cfg.fn_cost:g}, FP_COST={cfg.fp_cost:g}); "
+          f"per 1000 parts={d['cost_per_1000_parts']:.1f}")
     for p, e in res["regression"].items():
         line = f"{p}: MAE={e['model']['mae']:.4f} RMSE={e['model']['rmse']:.4f}"
         if "linear_baseline" in e:

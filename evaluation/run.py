@@ -26,6 +26,7 @@ if str(ROOT) not in sys.path:
 
 from backend.app.core.config import settings  # noqa: E402
 from data_engine.generator import BurnInSyntheticGenerator  # noqa: E402
+from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
 from ml_engine.module_b_drift import linear_extrapolation_baseline  # noqa: E402
@@ -42,7 +43,18 @@ def default_config() -> Dict[str, Any]:
         "num_lots": settings.DEFAULT_NUM_LOTS,
         "components_per_lot": settings.DEFAULT_COMPONENTS_PER_LOT,
         "n_splits": 5,
+        "fn_cost": settings.FN_COST,
+        "fp_cost": settings.FP_COST,
+        "recall_target": settings.RECALL_TARGET,
     }
+
+
+def cost_of(cfg: Dict[str, Any]) -> CostConfig:
+    return CostConfig(fn_cost=cfg["fn_cost"], fp_cost=cfg["fp_cost"], recall_target=cfg["recall_target"])
+
+
+def model_factory(cfg: Dict[str, Any]):
+    return lambda: ScreeningModel(cost=cost_of(cfg), random_state=cfg["seed"])
 
 
 def generate(cfg: Dict[str, Any]) -> pd.DataFrame:
@@ -65,7 +77,7 @@ def _round(obj: Any, nd: int = 4) -> Any:
 
 def train_in_sample(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     """TRAIN (optimistic): fit on every lot and predict the same parts."""
-    model = ScreeningModel(random_state=cfg["seed"]).fit(df)
+    model = model_factory(cfg)().fit(df)
     early = early_readings_only(df)
     preds = model.predict(early)
     preds["component_id"] = preds["component_id"].astype(str)
@@ -79,7 +91,7 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
     cfg = {**default_config(), **(cfg or {})}
     df = generate(cfg)
     truth = extract_truth(df)
-    cf = cross_fit_predict(df, lambda: ScreeningModel(random_state=cfg["seed"]), n_splits=cfg["n_splits"], seed=cfg["seed"])
+    cf = cross_fit_predict(df, model_factory(cfg), n_splits=cfg["n_splits"], seed=cfg["seed"])
 
     results: Dict[str, Any] = {
         "config": cfg,
@@ -90,14 +102,17 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
             "n_defective": int(df.drop_duplicates("component_id")["ground_truth_flag"].sum()),
             "folds": [
                 {"fold": f.fold, "n_train_lots": len(f.train_lots), "n_test_lots": len(f.test_lots),
-                 "n_test_parts": len(f.test_component_ids)}
+                 "n_test_parts": len(f.test_component_ids),
+                 "threshold_a": cf.models[f.fold].thresholds_["threshold_a"],
+                 "threshold_b": cf.models[f.fold].thresholds_["threshold_b"],
+                 "validation_recall": cf.models[f.fold].thresholds_["validation"]["recall"]}
                 for f in cf.folds
             ],
         },
-        "held_out": score(cf.predictions, truth),
+        "held_out": score(cf.predictions, truth, cost_of(cfg)),
     }
     if include_train:
-        results["train_optimistic"] = score(train_in_sample(df, cfg), truth)
+        results["train_optimistic"] = score(train_in_sample(df, cfg), truth, cost_of(cfg))
     results = _round(results)
 
     if out_dir is not None:
@@ -132,11 +147,19 @@ def render_markdown(res: Dict[str, Any]) -> str:
         "- The TRAIN column refits on all lots and scores the same parts. It is **optimistic** and shown only",
         "  to make the generalisation gap visible.",
         "",
-        "| Fold | Train lots | Test lots | Test parts |",
-        "|---:|---:|---:|---:|",
+        f"- Decision cost: a missed defect (FN) costs **{cfg['fn_cost']:g}**, a false alarm (FP) **{cfg['fp_cost']:g}**"
+        + (f"; recall target {cfg['recall_target']:g}" if cfg.get("recall_target") else "; no recall constraint") + ".",
+        "- Module A / Module B thresholds are chosen per fold by minimising that cost on an inner lot-grouped",
+        "  CV over the fold's training lots only (never on the held-out lots).",
+        "",
+        "| Fold | Train lots | Test lots | Test parts | Chosen threshold A | Chosen threshold B | Inner-CV recall |",
+        "|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for f in split["folds"]:
-        lines.append(f"| {f['fold']} | {f['n_train_lots']} | {f['n_test_lots']} | {f['n_test_parts']} |")
+        lines.append(
+            f"| {f['fold']} | {f['n_train_lots']} | {f['n_test_lots']} | {f['n_test_parts']} | "
+            f"{f['threshold_a']} | {f['threshold_b']} | {_pct(f['validation_recall'])} |"
+        )
 
     def det_row(name: str, key: str, fmt=lambda v: f"{v}") -> str:
         a = fmt(ho["detection"][key])
@@ -151,7 +174,10 @@ def render_markdown(res: Dict[str, Any]) -> str:
         "|---|---:|---:|",
         det_row("Recall", "recall", _pct),
         det_row("Precision", "precision", _pct),
+        det_row("F2 (beta=2)", "f2", _pct),
         det_row("F1", "f1", _pct),
+        det_row(f"Weighted cost (FN x{cfg['fn_cost']:g} + FP x{cfg['fp_cost']:g})", "weighted_cost"),
+        det_row("Weighted cost per 1,000 parts", "cost_per_1000_parts"),
         det_row("False-negative rate", "false_negative_rate", _pct),
         det_row("TP", "tp"),
         det_row("FN (escapes)", "fn"),

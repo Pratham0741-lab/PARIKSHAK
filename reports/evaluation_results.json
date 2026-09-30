@@ -1,29 +1,40 @@
 {
   "config": {
     "components_per_lot": 100,
+    "fn_cost": 20.0,
+    "fp_cost": 1.0,
     "n_splits": 5,
     "num_lots": 10,
+    "recall_target": null,
     "seed": 42
   },
   "held_out": {
     "detection": {
-      "f1": 0.3701,
-      "false_negative_rate": 0.3542,
-      "false_positive_rate": 0.1958,
-      "fn": 34,
-      "fp": 177,
+      "cost_config": {
+        "fn_cost": 20.0,
+        "fp_cost": 1.0,
+        "recall_target": null
+      },
+      "cost_per_1000_parts": 874.0,
+      "f1": 0.2504,
+      "f2": 0.4191,
+      "false_negative_rate": 0.2396,
+      "false_positive_rate": 0.458,
+      "fn": 23,
+      "fp": 414,
       "n": 1000,
-      "precision": 0.2594,
-      "recall": 0.6458,
-      "tn": 727,
-      "tp": 62
+      "precision": 0.1499,
+      "recall": 0.7604,
+      "tn": 490,
+      "tp": 73,
+      "weighted_cost": 874.0
     },
     "n_excluded_no_truth": 0,
     "n_predictions": 1000,
     "n_scored": 1000,
     "per_class": {
       "LATE_DRIFT": {
-        "flagged_rate": 0.2917,
+        "flagged_rate": 0.5,
         "n": 24
       },
       "LEVEL_OUTLIER": {
@@ -31,7 +42,7 @@
         "n": 24
       },
       "NORMAL": {
-        "flagged_rate": 0.1958,
+        "flagged_rate": 0.458,
         "n": 904
       },
       "STEEP_DRIFT": {
@@ -39,7 +50,7 @@
         "n": 24
       },
       "SUBTLE_MULTIVARIATE": {
-        "flagged_rate": 0.5417,
+        "flagged_rate": 0.7917,
         "n": 24
       }
     },
@@ -88,31 +99,46 @@
         "fold": 0,
         "n_test_lots": 2,
         "n_test_parts": 200,
-        "n_train_lots": 8
+        "n_train_lots": 8,
+        "threshold_a": 0.0617,
+        "threshold_b": 0.0044,
+        "validation_recall": 0.9405
       },
       {
         "fold": 1,
         "n_test_lots": 2,
         "n_test_parts": 200,
-        "n_train_lots": 8
+        "n_train_lots": 8,
+        "threshold_a": 0.196,
+        "threshold_b": 0.0229,
+        "validation_recall": 0.8611
       },
       {
         "fold": 2,
         "n_test_lots": 2,
         "n_test_parts": 200,
-        "n_train_lots": 8
+        "n_train_lots": 8,
+        "threshold_a": 0.3304,
+        "threshold_b": 0.1476,
+        "validation_recall": 0.7619
       },
       {
         "fold": 3,
         "n_test_lots": 2,
         "n_test_parts": 200,
-        "n_train_lots": 8
+        "n_train_lots": 8,
+        "threshold_a": 0.4473,
+        "threshold_b": 0.0239,
+        "validation_recall": 0.7778
       },
       {
         "fold": 4,
         "n_test_lots": 2,
         "n_test_parts": 200,
-        "n_train_lots": 8
+        "n_train_lots": 8,
+        "threshold_a": 0.4514,
+        "threshold_b": 0.0638,
+        "validation_recall": 0.6944
       }
     ],
     "method": "GroupKFold over lots (lot-level cross-fitting); 96h/168h and labels hidden at prediction time",
@@ -122,31 +148,39 @@
   },
   "train_optimistic": {
     "detection": {
-      "f1": 0.4425,
-      "false_negative_rate": 0.1979,
-      "false_positive_rate": 0.1936,
-      "fn": 19,
-      "fp": 175,
+      "cost_config": {
+        "fn_cost": 20.0,
+        "fp_cost": 1.0,
+        "recall_target": null
+      },
+      "cost_per_1000_parts": 585.0,
+      "f1": 0.2708,
+      "f2": 0.474,
+      "false_negative_rate": 0.0521,
+      "false_positive_rate": 0.5365,
+      "fn": 5,
+      "fp": 485,
       "n": 1000,
-      "precision": 0.3056,
-      "recall": 0.8021,
-      "tn": 729,
-      "tp": 77
+      "precision": 0.158,
+      "recall": 0.9479,
+      "tn": 419,
+      "tp": 91,
+      "weighted_cost": 585.0
     },
     "n_excluded_no_truth": 0,
     "n_predictions": 1000,
     "n_scored": 1000,
     "per_class": {
       "LATE_DRIFT": {
-        "flagged_rate": 0.875,
+        "flagged_rate": 1.0,
         "n": 24
       },
       "LEVEL_OUTLIER": {
-        "flagged_rate": 0.7917,
+        "flagged_rate": 1.0,
         "n": 24
       },
       "NORMAL": {
-        "flagged_rate": 0.1936,
+        "flagged_rate": 0.5365,
         "n": 904
       },
       "STEEP_DRIFT": {
@@ -154,7 +188,7 @@
         "n": 24
       },
       "SUBTLE_MULTIVARIATE": {
-        "flagged_rate": 0.5417,
+        "flagged_rate": 0.7917,
         "n": 24
       }
     },

@@ -106,6 +106,18 @@ class ModelPrediction(Base):
         doc="True if forecasted to violate safety ceiling or excessive drift rate",
     )
 
+    module_b_score: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, doc="Module B decision score compared against threshold_b"
+    )
+    threshold_a: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, doc="Module A threshold used for this decision (NULL = module disabled)"
+    )
+    threshold_b: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, doc="Module B threshold used for this decision (NULL = module disabled)"
+    )
+    run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("screening_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     cv_fold: Mapped[Optional[int]] = mapped_column(
         Integer,
         nullable=True,

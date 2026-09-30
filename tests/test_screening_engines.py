@@ -104,95 +104,34 @@ def test_module_b_held_out_lots_beats_linear_baseline(
     assert steep["pred_leakage_168h"].median() > normal["pred_leakage_168h"].quantile(0.95)
 
 
-def test_unified_verdict_mapping_and_borderline_review() -> None:
+def test_unified_verdict_mapping_uses_supplied_thresholds() -> None:
     """
-    Verifies that the ScreeningVerdictEngine deterministically maps rules
-    to PASS, REVIEW, and REJECT, correctly steering borderline parts to REVIEW.
+    Decision = union of Module A and Module B with LEARNED thresholds, plus datasheet rules.
+    (Replaces a test that encoded the removed hand-set constants 0.85 / 0.50 / 0.12 / 35 uA.)
     """
     engine = ScreeningVerdictEngine()
+    nominal = {"leakage_current_ua": 12.0, "iddq_ma": 1.5, "propagation_delay_ns": 4.2}
 
-    # Rule 1: Datasheet breach -> REJECT
-    v, r = engine.evaluate_component(
-        is_datasheet_breached=True,
-        module_a_score=0.2,
-        module_a_flag=False,
-        pred_leakage_168h=15.0,
-        pred_iddq_168h=1.5,
-        pred_delay_168h=4.2,
-        drift_slope_ua_per_hr=0.01,
-        module_b_flag=False,
-    )
-    assert v == "REJECT"
-    assert "RULE_BREACH" in r
+    def ev(**kw):
+        args = dict(observed_breach=False, predictions_168h=nominal, module_a_score=0.1,
+                    threshold_a=0.4, module_b_score=0.01, threshold_b=0.05)
+        args.update(kw)
+        return engine.evaluate_component(**args)
 
-    # Rule 2: Extreme Module A score (> 0.85) -> REJECT
-    v, r = engine.evaluate_component(
-        is_datasheet_breached=False,
-        module_a_score=0.92,
-        module_a_flag=True,
-        pred_leakage_168h=20.0,
-        pred_iddq_168h=1.5,
-        pred_delay_168h=4.2,
-        drift_slope_ua_per_hr=0.02,
-        module_b_flag=False,
-    )
-    assert v == "REJECT"
-    assert "RULE_EXTREME_OUTLIER" in r
-
-    # Rule 3: Predicted 168h leakage exceeding 50 uA ceiling -> REJECT
-    v, r = engine.evaluate_component(
-        is_datasheet_breached=False,
-        module_a_score=0.3,
-        module_a_flag=False,
-        pred_leakage_168h=52.5,
-        pred_iddq_168h=1.5,
-        pred_delay_168h=4.2,
-        drift_slope_ua_per_hr=0.25,
-        module_b_flag=True,
-    )
-    assert v == "REJECT"
-
-    # Rule 4: Borderline Module A score (0.50 <= score < 0.85) -> REVIEW
-    v, r = engine.evaluate_component(
-        is_datasheet_breached=False,
-        module_a_score=0.68,
-        module_a_flag=True,
-        pred_leakage_168h=18.0,
-        pred_iddq_168h=1.5,
-        pred_delay_168h=4.2,
-        drift_slope_ua_per_hr=0.03,
-        module_b_flag=False,
-    )
-    assert v == "REVIEW"
-    assert "RULE_BORDERLINE" in r
-
-    # Rule 5: Elevated drift slope (> 0.12 uA/hr) -> REVIEW
-    v, r = engine.evaluate_component(
-        is_datasheet_breached=False,
-        module_a_score=0.25,
-        module_a_flag=False,
-        pred_leakage_168h=32.0,
-        pred_iddq_168h=1.5,
-        pred_delay_168h=4.2,
-        drift_slope_ua_per_hr=0.14,
-        module_b_flag=True,
-    )
-    assert v == "REVIEW"
-    assert "Elevated drift slope" in r
-
-    # Rule 6: Nominal component within envelope -> PASS
-    v, r = engine.evaluate_component(
-        is_datasheet_breached=False,
-        module_a_score=0.15,
-        module_a_flag=False,
-        pred_leakage_168h=12.2,
-        pred_iddq_168h=1.48,
-        pred_delay_168h=4.15,
-        drift_slope_ua_per_hr=0.005,
-        module_b_flag=False,
-    )
-    assert v == "PASS"
-    assert "RULE_NOMINAL" in r
+    assert ev(observed_breach=True)[0] == "REJECT"
+    v, r = ev(predictions_168h={**nominal, "leakage_current_ua": 52.5})
+    assert v == "REJECT" and "RULE_PRED_LIMIT" in r
+    v, r = ev(module_a_score=0.5, module_b_score=0.2)
+    assert v == "REJECT" and "RULE_BOTH_MODULES" in r
+    v, r = ev(module_a_score=0.5)
+    assert v == "REVIEW" and "RULE_MODULE_A" in r and "threshold 0.400" in r
+    v, r = ev(module_b_score=0.06)
+    assert v == "REVIEW" and "RULE_MODULE_B" in r
+    assert ev()[0] == "PASS"
+    # The same scores give a different decision when the learned threshold differs.
+    assert ev(module_a_score=0.5, threshold_a=0.6)[0] == "PASS"
+    # A disabled module (threshold = +inf) never flags.
+    assert ev(module_a_score=1.0, threshold_a=float("inf"))[0] == "PASS"
 
 
 def test_model_predictions_database_persistence() -> None:

@@ -31,28 +31,10 @@ class DriftPredictor:
 
     PARAMETERS = PARAMETERS
 
-    # Cold-start defaults only; the operational decision thresholds are chosen by cost
-    # minimisation on out-of-fold validation predictions (see evaluation/thresholds.py).
-    DEFAULT_LEAKAGE_DRIFT_THRESHOLD_UA: float = 35.0
-    DEFAULT_DRIFT_SLOPE_THRESHOLD_UA_HR: float = 0.12
-    DEFAULT_DATASHEET_LEAKAGE_MAX: float = 50.0
-    DEFAULT_DATASHEET_IDDQ_MAX: float = 5.0
-    DEFAULT_DATASHEET_DELAY_MAX: float = 8.0
-
-    def __init__(
-        self,
-        leakage_threshold_ua: float = DEFAULT_LEAKAGE_DRIFT_THRESHOLD_UA,
-        slope_threshold_ua_hr: float = DEFAULT_DRIFT_SLOPE_THRESHOLD_UA_HR,
-        n_estimators: int = 100,
-        learning_rate: float = 0.05,
-        random_state: int = 42,
-    ) -> None:
-        self.leakage_threshold_ua = leakage_threshold_ua
-        self.slope_threshold_ua_hr = slope_threshold_ua_hr
+    def __init__(self, n_estimators: int = 100, learning_rate: float = 0.05, random_state: int = 42) -> None:
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.random_state = random_state
-
         self.models_: Dict[str, lgb.LGBMRegressor] = {}
         self.feature_columns_: List[str] = []
 
@@ -93,15 +75,8 @@ class DriftPredictor:
 
         preds = {p: self.models_[p].predict(X) for p in self.PARAMETERS}
         leak_0 = feats["leakage_current_ua_v0"].to_numpy()
+        # Predicted 168h drift rate of leakage current (uA/hr), from 0h to the 168h forecast.
         drift_slope = (preds["leakage_current_ua"] - leak_0) / 168.0
-
-        module_b_flag = (
-            (preds["leakage_current_ua"] >= self.leakage_threshold_ua)
-            | (drift_slope >= self.slope_threshold_ua_hr)
-            | (preds["leakage_current_ua"] >= self.DEFAULT_DATASHEET_LEAKAGE_MAX)
-            | (preds["iddq_ma"] >= self.DEFAULT_DATASHEET_IDDQ_MAX)
-            | (preds["propagation_delay_ns"] >= self.DEFAULT_DATASHEET_DELAY_MAX)
-        )
         return pd.DataFrame(
             {
                 "component_id": feats.index.to_numpy(),
@@ -109,7 +84,6 @@ class DriftPredictor:
                 "pred_iddq_168h": np.round(preds["iddq_ma"], 4),
                 "pred_delay_168h": np.round(preds["propagation_delay_ns"], 4),
                 "drift_slope_ua_per_hr": np.round(drift_slope, 5),
-                "module_b_flag": module_b_flag,
             }
         )
 

@@ -13,36 +13,43 @@ fails if a fresh run does not reproduce them exactly.
 - The TRAIN column refits on all lots and scores the same parts. It is **optimistic** and shown only
   to make the generalisation gap visible.
 
-| Fold | Train lots | Test lots | Test parts |
-|---:|---:|---:|---:|
-| 0 | 8 | 2 | 200 |
-| 1 | 8 | 2 | 200 |
-| 2 | 8 | 2 | 200 |
-| 3 | 8 | 2 | 200 |
-| 4 | 8 | 2 | 200 |
+- Decision cost: a missed defect (FN) costs **20**, a false alarm (FP) **1**; no recall constraint.
+- Module A / Module B thresholds are chosen per fold by minimising that cost on an inner lot-grouped
+  CV over the fold's training lots only (never on the held-out lots).
+
+| Fold | Train lots | Test lots | Test parts | Chosen threshold A | Chosen threshold B | Inner-CV recall |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 8 | 2 | 200 | 0.0617 | 0.0044 | 94.0% |
+| 1 | 8 | 2 | 200 | 0.196 | 0.0229 | 86.1% |
+| 2 | 8 | 2 | 200 | 0.3304 | 0.1476 | 76.2% |
+| 3 | 8 | 2 | 200 | 0.4473 | 0.0239 | 77.8% |
+| 4 | 8 | 2 | 200 | 0.4514 | 0.0638 | 69.4% |
 
 ## Anomaly detection (flag = verdict REVIEW or REJECT)
 
 | Metric | Held-out lots | TRAIN (optimistic) |
 |---|---:|---:|
-| Recall | **64.6%** | 80.2% |
-| Precision | **25.9%** | 30.6% |
-| F1 | **37.0%** | 44.2% |
-| False-negative rate | **35.4%** | 19.8% |
-| TP | **62** | 77 |
-| FN (escapes) | **34** | 19 |
-| FP | **177** | 175 |
-| TN | **727** | 729 |
+| Recall | **76.0%** | 94.8% |
+| Precision | **15.0%** | 15.8% |
+| F2 (beta=2) | **41.9%** | 47.4% |
+| F1 | **25.0%** | 27.1% |
+| Weighted cost (FN x20 + FP x1) | **874.0** | 585.0 |
+| Weighted cost per 1,000 parts | **874.0** | 585.0 |
+| False-negative rate | **24.0%** | 5.2% |
+| TP | **73** | 91 |
+| FN (escapes) | **23** | 5 |
+| FP | **414** | 485 |
+| TN | **490** | 419 |
 
 ### Catch rate by defect class (held-out)
 
 | Class | Parts | Flagged (held-out) | Flagged (TRAIN) |
 |---|---:|---:|---:|
-| `LATE_DRIFT` | 24 | **29.2%** | 87.5% |
-| `LEVEL_OUTLIER` | 24 | **83.3%** | 79.2% |
-| `NORMAL` | 904 | **19.6%** | 19.4% |
+| `LATE_DRIFT` | 24 | **50.0%** | 100.0% |
+| `LEVEL_OUTLIER` | 24 | **83.3%** | 100.0% |
+| `NORMAL` | 904 | **45.8%** | 53.6% |
 | `STEEP_DRIFT` | 24 | **91.7%** | 100.0% |
-| `SUBTLE_MULTIVARIATE` | 24 | **54.2%** | 54.2% |
+| `SUBTLE_MULTIVARIATE` | 24 | **79.2%** | 79.2% |
 
 ## Module B: 168h forecast accuracy
 

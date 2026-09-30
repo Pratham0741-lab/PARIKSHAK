@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     DATASHEET_IDDQ_MAX_MA: float = 5.0
     DATASHEET_DELAY_MAX_NS: float = 8.0
 
+    # Screening decision costs (see evaluation/cost.py). A missed defect (FN) is weighted
+    # FN_COST / FP_COST times a false alarm. RECALL_TARGET optionally constrains threshold choice.
+    FN_COST: float = 20.0
+    FP_COST: float = 1.0
+    RECALL_TARGET: Optional[float] = None
+
     @computed_field
     @property
     def sync_database_url(self) -> str:

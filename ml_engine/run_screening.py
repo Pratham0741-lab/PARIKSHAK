@@ -36,12 +36,36 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from backend.app.core.config import settings  # noqa: E402
 from backend.app.core.database import SessionLocal  # noqa: E402
-from backend.app.models import BurnInReading, Component, Lot, ModelPrediction  # noqa: E402
+from backend.app.models import BurnInReading, Component, Lot, ModelPrediction, ScreeningRun  # noqa: E402
+from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
 from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E402
 
 console = Console(highlight=False)
+
+ARTIFACT_PATH = PROJECT_ROOT / "artifacts" / "screening_model.joblib"
+PROTOCOL = (
+    "Out-of-fold: GroupKFold over lots; each fold's model is trained on the other lots with thresholds "
+    "chosen by FN-weighted cost minimisation on an inner lot-grouped CV of those training lots; held-out "
+    "lots are predicted from 0h/24h readings only."
+)
+
+
+def _finite(x):
+    """JSON/DB-safe threshold: +inf (module disabled) is stored as NULL."""
+    x = float(x)
+    return None if x == float("inf") else x
+
+
+def _jsonable(obj):
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, float) and obj in (float("inf"), float("-inf")):
+        return None
+    return obj
 
 
 def fetch_screening_data(session: Session) -> pd.DataFrame:
@@ -73,7 +97,7 @@ def fetch_screening_data(session: Session) -> pd.DataFrame:
     return df
 
 
-def persist_predictions(session: Session, preds: pd.DataFrame, batch_size: int = 2000) -> int:
+def persist_predictions(session: Session, preds: pd.DataFrame, run_id=None, batch_size: int = 2000) -> int:
     session.execute(delete(ModelPrediction))
     session.flush()
     rows: List[Dict[str, Any]] = [
@@ -89,6 +113,10 @@ def persist_predictions(session: Session, preds: pd.DataFrame, batch_size: int =
             "module_b_flag": bool(r.module_b_flag),
             "verdict": r.verdict,
             "verdict_reason": r.verdict_reason,
+            "module_b_score": float(r.module_b_score),
+            "threshold_a": _finite(r.threshold_a),
+            "threshold_b": _finite(r.threshold_b),
+            "run_id": run_id,
             "cv_fold": None if pd.isna(r.cv_fold) else int(r.cv_fold),
         }
         for r in preds.itertuples(index=False)
@@ -104,8 +132,9 @@ def print_metrics(title: str, res: Dict[str, Any]) -> None:
     t = Table(title=title, show_header=True)
     t.add_column("Metric")
     t.add_column("Value", justify="right")
-    for k in ("recall", "precision", "f1", "false_negative_rate"):
+    for k in ("recall", "precision", "f2", "f1", "false_negative_rate"):
         t.add_row(k, f"{100 * d[k]:.2f}%")
+    t.add_row("weighted cost", f"{d['weighted_cost']:.1f} (per 1000 parts: {d['cost_per_1000_parts']:.1f})")
     for k in ("tp", "fn", "fp", "tn"):
         t.add_row(k.upper(), str(d[k]))
     for p, e in res["regression"].items():
@@ -114,28 +143,53 @@ def print_metrics(title: str, res: Dict[str, Any]) -> None:
     console.print(t)
 
 
-def run_pipeline(n_splits: int = 5, persist: bool = True, report_train: bool = False) -> Dict[str, Any]:
+def run_pipeline(
+    n_splits: int = 5, persist: bool = True, report_train: bool = False, cost: CostConfig | None = None
+) -> Dict[str, Any]:
     start = time.perf_counter()
     seed = settings.SYNTHETIC_RANDOM_SEED
+    cost = cost or CostConfig.from_settings()
+
+    def factory():
+        return ScreeningModel(cost=cost, random_state=seed)
+
     with SessionLocal() as session:
         df = fetch_screening_data(session)
         console.print(f"Loaded {df['component_id'].nunique():,} components across {df['lot_id'].nunique()} lots.")
+        console.print(f"Decision cost: FN={cost.fn_cost:g}, FP={cost.fp_cost:g}, recall target={cost.recall_target}")
 
-        cf = cross_fit_predict(df, lambda: ScreeningModel(random_state=seed), n_splits=n_splits, seed=seed)
+        cf = cross_fit_predict(df, factory, n_splits=n_splits, seed=seed)
         truth = extract_truth(df)
-        held_out = score(cf.predictions, truth)
+        held_out = score(cf.predictions, truth, cost)
         print_metrics(f"HELD-OUT (out-of-fold, GroupKFold over lots, k={n_splits})", held_out)
 
-        result: Dict[str, Any] = {"held_out": held_out, "predictions": cf.predictions}
+        # Final model on every labelled lot: its thresholds (chosen on inner OOF) are persisted
+        # with the artifact and used for lots screened later (e.g. CSV ingest).
+        final = factory().fit(df)
+        final.save(ARTIFACT_PATH)
+        console.print(f"Saved model + thresholds to {ARTIFACT_PATH.relative_to(PROJECT_ROOT)} "
+                      f"(A={final.thresholds_['threshold_a']:.4f}, B={final.thresholds_['threshold_b']:.4f})")
+
+        result: Dict[str, Any] = {"held_out": held_out, "predictions": cf.predictions, "final_model": final}
         if report_train:
-            model = ScreeningModel(random_state=seed).fit(df)
-            train_preds = model.predict(early_readings_only(df))
-            result["train_optimistic"] = score(train_preds, truth)
+            train_preds = final.predict(early_readings_only(df))
+            result["train_optimistic"] = score(train_preds, truth, cost)
             print_metrics("TRAIN (optimistic, in-sample - NOT a performance estimate)", result["train_optimistic"])
 
         if persist:
-            n = persist_predictions(session, cf.predictions)
-            console.print(f"Persisted {n:,} out-of-fold predictions.")
+            run = ScreeningRun(
+                protocol=PROTOCOL,
+                cost_config=cost.as_dict(),
+                final_thresholds=_jsonable(final.thresholds_),
+                fold_thresholds=_jsonable({str(k): m.thresholds_ for k, m in cf.models.items()}),
+                held_out_metrics=_jsonable(held_out),
+                artifact_path=str(ARTIFACT_PATH.relative_to(PROJECT_ROOT)),
+            )
+            session.add(run)
+            session.flush()
+            n = persist_predictions(session, cf.predictions, run_id=run.id)
+            result["run_id"] = run.id
+            console.print(f"Persisted {n:,} out-of-fold predictions (run {run.id}).")
 
     result["elapsed_seconds"] = round(time.perf_counter() - start, 2)
     return result
@@ -146,9 +200,13 @@ def main() -> None:
     ap.add_argument("--folds", type=int, default=5, help="number of lot-level folds (default 5)")
     ap.add_argument("--no-persist", action="store_true", help="do not write predictions to the database")
     ap.add_argument("--report-train", action="store_true", help="also print TRAIN (optimistic) in-sample metrics")
+    ap.add_argument("--fn-cost", type=float, default=None, help="cost of a missed defect (default: settings.FN_COST=20)")
+    ap.add_argument("--fp-cost", type=float, default=None, help="cost of a false alarm (default: settings.FP_COST=1)")
+    ap.add_argument("--recall-target", type=float, default=None, help="optional recall constraint for threshold choice")
     args = ap.parse_args()
+    cost = CostConfig.from_settings(fn_cost=args.fn_cost, fp_cost=args.fp_cost, recall_target=args.recall_target)
     try:
-        run_pipeline(n_splits=args.folds, persist=not args.no_persist, report_train=args.report_train)
+        run_pipeline(n_splits=args.folds, persist=not args.no_persist, report_train=args.report_train, cost=cost)
     except Exception as exc:
         console.print(f"[bold red]Pipeline error: {exc}[/bold red]")
         sys.exit(1)
