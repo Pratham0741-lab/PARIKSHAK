@@ -149,3 +149,119 @@ No hardcoded metric literals such as "0.983", "38.2" or chart arrays were found 
 3. **Module B elevated 168h forecast and safety-slope flag:** pred168 = 47.7 µA with `module_b_flag=True`. The flag came from the 35 µA predicted-level rule, **not** the slope rule (0.106 < 0.12 µA/h).
 4. **Explanation cites real factors:** yes (BE explainer: leakage, 32.5 MAD at 0h, LATENT_LOT_OUTLIER). The FE explanation for the same kind of part would include fabricated Temperature/Package bars.
 5. **Recall and MAE:** both come from computed data. The honest values are **recall 0.66, leakage MAE 2.8 µA** (lot-held-out). The repository reports 0.80 / 0.82 µA, which are in-sample.
+
+
+---
+
+# Re-audit (after remediation, branch `fix/audit-remediation`)
+
+Re-audit date: 2026-09-30. All numbers below come from `reports/evaluation_results.json`, produced by
+`python -m evaluation.run` (seed 42, 10 lots, 1,000 parts, 96 defective, 5-fold GroupKFold over lots,
+96h/168h and labels hidden at prediction time). `tests/test_evaluation_report.py` checks that a fresh
+run reproduces them exactly.
+
+## Updated verdict: **Built for this PS** (with the open items listed below)
+
+The ML system is now evaluated honestly (lot-held-out, out-of-fold), decisions minimise an explicit
+FN-weighted cost, and the UI is a client of the real backend. Every score, interval, explanation and
+metric shown is computed from data. The remaining gaps concern data realism and the achievable
+performance on this synthetic data, not fabrication.
+
+## Held-out results vs TRAIN (optimistic)
+
+| Metric | Held-out lots | TRAIN (in-sample) |
+|---|---:|---:|
+| Recall | 78.1% | 92.7% |
+| Precision | 20.1% | 23.4% |
+| F2 | 49.5% | 58.3% |
+| Weighted cost (FN x20 + FP x1) | 718 | 431 |
+| Reference: flag every part / flag none | 904 / 1920 | 904 / 1920 |
+| TP / FN / FP / TN | 75 / 21 / 298 / 606 | 89 / 7 / 291 / 613 |
+| LATE_DRIFT catch rate | 37.5% | 87.5% |
+| Leakage 168h MAE / RMSE (uA) | 1.930 / 5.112 | 1.428 / 4.059 |
+| Linear baseline MAE (uA) | 5.970 | 5.970 |
+| IDDQ MAE (mA) / delay MAE (ns) | 0.0918 / 0.2059 | 0.0667 / 0.1516 |
+| 90% interval coverage: leakage / IDDQ / delay | 89.0% / 91.5% / 90.9% | 98.3% / 98.6% / 98.7% |
+
+Other figures:
+- **Nested lot-grouped CV estimate for Module B** (selection inside CV): leakage MAE 2.040 uA,
+  vs 3.358 for the original model.
+- **Joint threshold strategy** (for comparison): cost 709, but it disables Module B's slope rule in
+  5/5 folds. The default "separate" strategy keeps Module B active at cost 718.
+- **Before remediation, measured the same way:** recall 64.6%, precision 25.9%, cost 857, leakage
+  MAE 3.358 uA.
+- **The previously reported 80.2% recall / 0.82 uA MAE** were in-sample; the in-sample MAE is
+  reproduced exactly in the P0-1 commit message.
+
+## Scorecard (re-audit)
+
+| ID | Result | Evidence | Note |
+|---|---|---|---|
+| D1 | PASS | backend/app/models/reading.py; ml_engine/features.py:64 | 0/24/96/168h per part, stored and used with interval semantics. |
+| D2 | PARTIAL | backend/app/models/reading.py | Leakage, IDDQ and delay are data. **Burn-in temperature is still not stored**; it appears nowhere in the schema. |
+| D3 | PASS | backend/app/services/ingest.py:112, :172; backend/app/api/v1/ingest.py:40; backend/app/models/reading.py:68; tests/test_ingest.py | Missing columns reject the file; duplicates, empty IDs and non-numeric/negative cells are handled; lot-median imputation is flagged, never 0; insufficient-data parts go to REVIEW. |
+| A1 | PASS | ml_engine/module_a_outlier.py:82, :161 | Each scored lot is normalised by its own median/MAD; decision = sum of positive robust z. |
+| A2 | PASS | tests/test_ingest.py:106; smoke test below | 30 uA part in a 10.1 uA lot, below 50 uA: Module A score 27.39 >= 2.05. |
+| A3 | PASS | ml_engine/screening.py:52; ml_engine/verdict_engine.py:50 | Static check on observed 0h/24h readings, separate from A/B; shown per part in the UI. |
+| A4 | PASS | ml_engine/screening.py:142; evaluation/thresholds.py:135 | Thresholds are learned from FN_COST/FP_COST/RECALL_TARGET (settings/CLI). Changing FN_COST from 20 to 5 changed the UI (64/35/1 -> 75/25/0 pass/review/reject in lot B001). |
+| B1 | PASS | ml_engine/module_b_drift.py:54; evaluation/module_b_study.py:110 | LightGBM on a log-ratio target, chosen by nested lot-grouped CV against a linear baseline. |
+| B2 | PASS | ml_engine/features.py:27, :64; tests/test_evaluation_protocol.py:97 | 0h/24h only; name guard plus a perturbation test (changing 96h/168h values leaves features and forecasts unchanged). |
+| B3 | PASS | evaluation/splits.py:25; evaluation/crossfit.py:58, :88; tests/test_evaluation_protocol.py:68 | GroupKFold over lots; a spy model proves no test-lot part reaches training. Persisted predictions are all out-of-fold (cv_fold). |
+| B4 | PASS | ml_engine/safety_slope.py:70, :86; tests/test_safety_slope.py:24 | Per-lot, per-parameter slope = lot median + k x spread; k is cost-learned; the derivation is persisted and shown. |
+| B5 | PASS | ml_engine/module_b_drift.py:124; ml_engine/screening.py:158; tests/test_intervals.py:20, :45 | CQR intervals per part; held-out coverage is computed (89.0-91.5%). |
+| E1 | PASS | evaluation/cost.py:17, :55; evaluation/thresholds.py:47; tests/test_cost_thresholds.py:26, :51 | FN_COST = 20 x FP_COST by default; F2; cost per 1,000; FN-monotonicity test. |
+| E2 | PASS | evaluation/score.py:38; backend/app/api/v1/metrics.py:66 | Confusion matrix, recall and precision computed from predictions vs separately held truth. |
+| E3 | PASS | evaluation/score.py:101; evaluation/crossfit.py:88 | Truth is hidden at prediction time and joined only in scoring (`python -m evaluation.score --predictions --truth`). |
+| E4 | PASS | data_engine/generator.py:120; tests/test_evaluation_report.py:10 | Seeded RNG and seed-derived IDs; the report reproduces exactly. |
+| X1 | PASS | ml_engine/module_b_drift.py:136; ml_engine/module_a_outlier.py:177; ml_engine/explain.py:81 | TreeSHAP (pred_contrib) plus Module A's exact decomposition plus a plain-language justification. |
+| X2 | PASS | tests/test_explanations.py:40; backend/app/api/v1/components.py:279 | Every part gets distinct text; the named top contributor is the argmax of \|contribution\|. |
+| X3 | PASS | backend/app/schemas/review.py:19; frontend/src/components/layout/DecisionDialog.tsx:24; backend/app/api/v1/reviews.py:71; backend/app/api/v1/audit.py:33 | Score, threshold and rule trace per part; every override (single, bulk, keyboard) needs a comment; persistent audit log. |
+| F1 | PASS | repo-wide grep (see Commands) | No hardcoded display metrics, part IDs or intervals remain outside seeded generators and fixtures. |
+| F2 | PASS | frontend/src/data/api.ts:81, :242; frontend/src/screens/ModelPerformanceScreen.tsx:12 | UI metrics come from /metrics; a changed backend output changes the UI (verified live). |
+| F3 | PASS | tests/test_api_and_explainer.py:242; frontend/src/data/offlineDemo.ts:81 | No label reaches the UI (the API test walks the full payload); the offline demo is labelled and its statuses are invariant to 96h/168h. |
+| F4 | PARTIAL | data_engine/generator.py | Seeded, noisy, labelled, most defects below the limit. **Still per-lot Gaussian (not log-normal).** LATE_DRIFT has no 0h/24h precursor by construction; left unchanged on purpose, because altering it would make results look better without making the system better. |
+| U1 | PASS | frontend/src/App.tsx:17 | All 8 routes. |
+| U2 | PASS | frontend/src/data/api.ts:242; screens | Every screen reads backend data; the offline demo is explicit and exposes no metrics. |
+
+## Smoke test (repeated through the UI and the real backend)
+
+Ingested `frontend/public/example_ingest.csv` from the Ingest screen as lot SMOKE-LATENT-10UA:
+- **Validation (backend):** 64 rows, 63 accepted, 1 duplicate, 1 non-numeric, 2 imputed,
+  2 insufficient-data parts.
+- **Screening:** 63 parts screened (36 PASS / 22 REVIEW / 5 REJECT).
+
+EX-LATENT-001 (0h 30.0, 24h 36.0 uA; lot median 10.13 uA; below 50 uA at every interval):
+- **Module A** score 27.39 >= 2.05, leakage +27.1 lot-MADs → flag.
+- **Module B** predicted drift 0.2966 uA/h > lot safety slope 0.01936 uA/h
+  (= 0.00141 + 4.89 x 0.00367) → flag.
+- **Verdict REJECT.** The explanation names leakage and the 0-24h change robust z as the drivers.
+- **Caveat:** the forecast (79.8 uA) overshoots the true 168h value (48.5 uA). The 90% interval
+  (31.3-98.3 uA) contains it.
+
+## Still open
+
+1. **Achievable performance is modest.** Held-out cost 718 vs 904 for flagging every part; precision
+   20%. The oracle diagnostic, with thresholds tuned on the held-out data itself, reached only about
+   752 with the earlier scores. The limit is in the data.
+2. **LATE_DRIFT is undetectable at 24h in this generator:** its 37.5% catch rate is about the 33%
+   normal-part flag rate.
+3. **Thresholds vary across folds** (Module B k 2.5-8.2) with only 8 training lots per fold.
+4. **Temperature (D2) and log-normal/precursor realism (F4)** are not addressed.
+5. **Out-of-distribution forecasts can overshoot** (see smoke test); intervals widen but point
+   forecasts are unreliable there.
+6. **Docker:** images build and the backend image imports the full stack, but `docker compose up`
+   of the whole stack was not run end to end.
+7. **Minor:** ESLint 9 prints a deprecation notice; long part IDs wrap in narrow table columns;
+   lot SMOKE-LATENT-10UA remains in the dev DB as a demo (delete the lot to remove it).
+
+## Commands run (final verification)
+
+| Command | Result |
+|---|---|
+| `python -m ruff check .` | All checks passed |
+| `python -m pytest -q` (isolated `burn_in_test_db`) | 71 passed; dev DB counts unchanged (inspector_reviews 0 -> 0) |
+| fresh venv: `pip install -r requirements-dev.txt` + pytest | 69 passed at P1-8 (all tests at that point) |
+| `cd frontend && npm run lint` / `npx tsc --noEmit` / `npx vitest run` / `npm run build` | clean / clean / 10 passed / built |
+| `git clone . /tmp/clean && cd /tmp/clean/frontend && npm ci && npx tsc --noEmit && npm run build` | success |
+| `docker build frontend` (clean clone) / `docker build -f backend/Dockerfile .` + import check | built (74 MB) / imports OK after adding libgomp1 |
+| grep for `0.983`, `38.2`, `U-0342`, `ISR-24`, `4.79`, `80.21`, `0.8212`, `Next.js`, `Redis 7` (excluding node_modules, this report) | only `0.983` in reports/evaluation_results.json (a computed TRAIN coverage value) |
