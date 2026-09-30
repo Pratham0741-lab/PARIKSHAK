@@ -33,6 +33,14 @@ from ml_engine.explain import build_explanation
 router = APIRouter(prefix="/components", tags=["Components"])
 
 
+def _r(x, nd):
+    return None if x is None else round(x, nd)
+
+
+def _label(x):
+    return None if x is None else (x.value if hasattr(x, "value") else str(x))
+
+
 @router.get("", response_model=PaginatedComponentsResponse, summary="Query components with pagination and triage filters")
 async def list_components(
     lot_id: Optional[uuid.UUID] = Query(None, description="Filter by Lot UUID"),
@@ -96,7 +104,7 @@ async def list_components(
             lot_id=r.lot_id,
             lot_number=r.lot_number,
             serial_number=r.serial_number,
-            ground_truth_label=r.ground_truth_label.value if hasattr(r.ground_truth_label, "value") else str(r.ground_truth_label),
+            ground_truth_label=_label(r.ground_truth_label),
             ground_truth_flag=r.ground_truth_flag,
             is_datasheet_breached=r.is_datasheet_breached,
             verdict=r.verdict.value if r.verdict and hasattr(r.verdict, "value") else (str(r.verdict) if r.verdict else None),
@@ -184,6 +192,7 @@ async def get_component_profile(
             leakage_current_ua=round(r.leakage_current_ua, 4),
             iddq_ma=round(r.iddq_ma, 4),
             propagation_delay_ns=round(r.propagation_delay_ns, 4),
+            imputed_fields=r.imputed_fields,
             recorded_at=r.recorded_at,
         )
         for r in component.readings
@@ -195,13 +204,13 @@ async def get_component_profile(
         p = component.prediction
         pred_item = ModelPredictionItem(
             id=p.id,
-            module_a_score=round(p.module_a_score, 4),
-            module_a_mahalanobis=round(p.module_a_mahalanobis, 4),
+            module_a_score=_r(p.module_a_score, 4),
+            module_a_mahalanobis=_r(p.module_a_mahalanobis, 4),
             module_a_flag=p.module_a_flag,
-            pred_leakage_168h=round(p.pred_leakage_168h, 3),
-            pred_iddq_168h=round(p.pred_iddq_168h, 3),
-            pred_delay_168h=round(p.pred_delay_168h, 3),
-            drift_slope_ua_per_hr=round(p.drift_slope_ua_per_hr, 4),
+            pred_leakage_168h=_r(p.pred_leakage_168h, 3),
+            pred_iddq_168h=_r(p.pred_iddq_168h, 3),
+            pred_delay_168h=_r(p.pred_delay_168h, 3),
+            drift_slope_ua_per_hr=_r(p.drift_slope_ua_per_hr, 4),
             module_b_flag=p.module_b_flag,
             module_b_score=p.module_b_score,
             threshold_a=p.threshold_a,
@@ -234,9 +243,10 @@ async def get_component_profile(
         lot_number=component.lot.lot_number,
         wafer_id=component.lot.wafer_id,
         serial_number=component.serial_number,
-        ground_truth_label=component.ground_truth_label.value if hasattr(component.ground_truth_label, "value") else str(component.ground_truth_label),
+        ground_truth_label=_label(component.ground_truth_label),
         ground_truth_flag=component.ground_truth_flag,
         is_datasheet_breached=component.is_datasheet_breached,
+        insufficient_data=component.insufficient_data,
         readings=readings_items,
         prediction=pred_item,
         reviews=review_items,

@@ -16,8 +16,9 @@ class LotSummary(BaseModel):
 
     id: uuid.UUID = Field(..., description="Unique Lot identifier")
     lot_number: str = Field(..., description="Manufacturing lot number")
-    wafer_id: str = Field(..., description="Source semiconductor wafer identifier")
+    wafer_id: Optional[str] = Field(None, description="Source semiconductor wafer identifier")
     status: str = Field(..., description="Current processing lifecycle status")
+    source: str = Field("SYNTHETIC", description="SYNTHETIC (labelled generator data) or CSV_INGEST")
     total_components: int = Field(..., description="Total component count in lot")
     pass_count: int = Field(0, description="Components triaged as PASS")
     review_count: int = Field(0, description="Components triaged as REVIEW")
@@ -49,5 +50,5 @@ class LotDistributionResponse(BaseModel):
     """Full lot-level distribution envelope for box-plot and band rendering."""
     lot_id: uuid.UUID = Field(..., description="Unique Lot identifier")
     lot_number: str = Field(..., description="Manufacturing lot number")
-    wafer_id: str = Field(..., description="Source wafer ID")
+    wafer_id: Optional[str] = Field(None, description="Source wafer ID")
     parameters: List[ParameterDistribution] = Field(..., description="Distributions per parameter")

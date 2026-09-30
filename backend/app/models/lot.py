@@ -48,6 +48,13 @@ class Lot(Base):
         index=True,
         doc="Originating silicon wafer identifier (e.g. WAF-420-B)",
     )
+    source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="SYNTHETIC",
+        server_default="SYNTHETIC",
+        doc="SYNTHETIC (seeded generator, labelled) or CSV_INGEST (unlabelled production data)",
+    )
     status: Mapped[LotStatus] = mapped_column(
         SAEnum(LotStatus, name="lot_status_enum", native_enum=True),
         nullable=False,

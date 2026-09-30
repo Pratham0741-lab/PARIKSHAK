@@ -54,17 +54,15 @@ class Component(Base):
         index=True,
         doc="Part serial number (e.g. SN-00101)",
     )
-    ground_truth_label: Mapped[GroundTruthLabel] = mapped_column(
+    ground_truth_label: Mapped[Optional[GroundTruthLabel]] = mapped_column(
         SAEnum(GroundTruthLabel, name="ground_truth_label_enum", native_enum=True),
-        nullable=False,
-        default=GroundTruthLabel.NORMAL,
+        nullable=True,
         index=True,
         doc="Ground-truth classification of physical defect or normality",
     )
-    ground_truth_flag: Mapped[bool] = mapped_column(
+    ground_truth_flag: Mapped[Optional[bool]] = mapped_column(
         Boolean,
-        nullable=False,
-        default=False,
+        nullable=True,
         index=True,
         doc="Boolean anomaly indicator (True if defective/outlier, False if normal)",
     )
@@ -74,6 +72,14 @@ class Component(Base):
         default=False,
         index=True,
         doc="Flag indicating if any parameter violated absolute datasheet specification limits",
+    )
+
+    insufficient_data: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        doc="True if a 0h or 24h reading was missing/invalid at ingest (no Module A/B score)",
     )
 
     # Relationships

@@ -40,7 +40,8 @@ from backend.app.models import BurnInReading, Component, Lot, ModelPrediction, S
 from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
-from ml_engine.screening import ScreeningModel, early_readings_only, prediction_details  # noqa: E402
+from backend.app.services.screening_service import audit, prediction_record, write_predictions  # noqa: E402
+from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E402
 
 console = Console(highlight=False)
 
@@ -69,7 +70,7 @@ def _jsonable(obj):
 
 
 def fetch_screening_data(session: Session) -> pd.DataFrame:
-    """Lots, components and time-series readings from PostgreSQL (long format)."""
+    """Labelled lots, components and time-series readings from PostgreSQL (long format)."""
     query = (
         select(
             Component.id.label("component_id"),
@@ -85,6 +86,8 @@ def fetch_screening_data(session: Session) -> pd.DataFrame:
         )
         .join(Lot, Component.lot_id == Lot.id)
         .join(BurnInReading, Component.id == BurnInReading.component_id)
+        # Only labelled lots can be used for training and held-out evaluation.
+        .where(Component.ground_truth_flag.is_not(None))
         .order_by(Component.id, BurnInReading.interval_hours)
     )
     rows = session.execute(query).fetchall()
@@ -97,38 +100,18 @@ def fetch_screening_data(session: Session) -> pd.DataFrame:
     return df
 
 
-def persist_predictions(session: Session, preds: pd.DataFrame, run_id=None, batch_size: int = 2000) -> int:
-    session.execute(delete(ModelPrediction))
+def persist_predictions(session: Session, preds: pd.DataFrame, run_id=None) -> int:
+    """Replaces the predictions of the LABELLED lots only; ingested (unlabelled) lots keep theirs."""
+    ids = [uuid.UUID(str(c)) for c in preds["component_id"]]
+    session.execute(delete(ModelPrediction).where(ModelPrediction.component_id.in_(ids)))
     session.flush()
-    rows: List[Dict[str, Any]] = [
-        {
-            "component_id": uuid.UUID(str(r.component_id)),
-            "module_a_score": float(r.module_a_score),
-            "module_a_mahalanobis": float(r.module_a_mahalanobis),
-            "module_a_flag": bool(r.module_a_flag),
-            "pred_leakage_168h": float(r.pred_leakage_168h),
-            "pred_iddq_168h": float(r.pred_iddq_168h),
-            "pred_delay_168h": float(r.pred_delay_168h),
-            "drift_slope_ua_per_hr": float(r.drift_slope_ua_per_hr),
-            "module_b_flag": bool(r.module_b_flag),
-            "verdict": r.verdict,
-            "verdict_reason": r.verdict_reason,
-            "module_b_score": float(r.module_b_score),
-            "threshold_a": _finite(r.threshold_a),
-            "threshold_b": _finite(r.threshold_b),
-            "run_id": run_id,
-            "cv_fold": None if pd.isna(r.cv_fold) else int(r.cv_fold),
-        }
-        for r in preds.itertuples(index=False)
+    records = [
+        prediction_record(row, run_id=run_id, cv_fold=None if pd.isna(row["cv_fold"]) else int(row["cv_fold"]))
+        for _, row in preds.iterrows()
     ]
-    for row, (_, full) in zip(rows, preds.iterrows()):
-        row["safety_slope_ua_per_hr"] = _finite(full["safety_slope_leakage_current_ua"]) if pd.notna(
-            full["safety_slope_leakage_current_ua"]) else None
-        row["details"] = prediction_details(full)
-    for i in range(0, len(rows), batch_size):
-        session.execute(insert(ModelPrediction), rows[i : i + batch_size])
+    write_predictions(session, records)
     session.commit()
-    return len(rows)
+    return len(records)
 
 
 def print_metrics(title: str, res: Dict[str, Any]) -> None:
@@ -193,6 +176,12 @@ def run_pipeline(
             session.flush()
             n = persist_predictions(session, cf.predictions, run_id=run.id)
             result["run_id"] = run.id
+            d = held_out["detection"]
+            audit(session, "MODEL", "screening-pipeline", "Screening run",
+                  f"{n} out-of-fold predictions over {df['lot_id'].nunique()} labelled lots; held-out recall "
+                  f"{d['recall']:.3f}, precision {d['precision']:.3f}, weighted cost {d['weighted_cost']:g}",
+                  payload={"run_id": str(run.id), "thresholds": _jsonable(final.thresholds_)})
+            session.commit()
             console.print(f"Persisted {n:,} out-of-fold predictions (run {run.id}).")
 
     result["elapsed_seconds"] = round(time.perf_counter() - start, 2)

@@ -59,14 +59,14 @@ class ModelPrediction(Base):
     )
 
     # Module A: Spatial Lot-Adaptive Outlier Metrics
-    module_a_score: Mapped[float] = mapped_column(
+    module_a_score: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Composite normalized lot outlier score [0.0, 1.0]",
     )
-    module_a_mahalanobis: Mapped[float] = mapped_column(
+    module_a_mahalanobis: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Robust covariance-shrunk Mahalanobis distance in parametric feature space",
     )
     module_a_flag: Mapped[bool] = mapped_column(
@@ -78,24 +78,24 @@ class ModelPrediction(Base):
     )
 
     # Module B: Early 168h Drift Forecasts (from 0h/24h readings)
-    pred_leakage_168h: Mapped[float] = mapped_column(
+    pred_leakage_168h: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="LightGBM predicted leakage current at 168h in microamperes (uA)",
     )
-    pred_iddq_168h: Mapped[float] = mapped_column(
+    pred_iddq_168h: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="LightGBM predicted IDDQ supply current at 168h in milliamperes (mA)",
     )
-    pred_delay_168h: Mapped[float] = mapped_column(
+    pred_delay_168h: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="LightGBM predicted propagation delay at 168h in nanoseconds (ns)",
     )
-    drift_slope_ua_per_hr: Mapped[float] = mapped_column(
+    drift_slope_ua_per_hr: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Forecasted leakage drift rate in microamperes per hour (uA/hr)",
     )
     module_b_flag: Mapped[bool] = mapped_column(
