@@ -145,7 +145,7 @@ async def test_api_component_profile_and_explain(async_client: AsyncClient):
     assert len(exp["module_a"]["contributions"]) == 3
     assert len(exp["module_b"]["contributions"]) > 0
     assert exp["module_b"]["top_contributor"] in exp["summary"]
-    assert exp["module_a"]["top_contributor"] in exp["summary"]
+    assert exp["module_a"]["top_contributor"] is None or exp["module_a"]["top_contributor"] in exp["summary"]
 
 
 @pytest.mark.asyncio
@@ -227,3 +227,36 @@ async def test_api_cost_curve(async_client: AsyncClient):
             assert pt["weighted_cost"] == pytest.approx(curve["fn_cost"] * pt["fn"] + curve["fp_cost"] * pt["fp"])
         fns = [pt["fn"] for pt in curve["points"]]
         assert fns == sorted(fns)  # raising the swept threshold can only add escapes
+
+
+def _all_keys(obj):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield k
+            yield from _all_keys(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _all_keys(v)
+
+
+@pytest.mark.asyncio
+async def test_api_lot_parts_for_ui_never_expose_labels(async_client: AsyncClient):
+    lot = (await async_client.get("/api/v1/lots")).json()[0]
+    res = await async_client.get(f"/api/v1/lots/{lot['id']}/parts")
+    assert res.status_code == 200
+    parts = res.json()
+    assert len(parts) == lot["total_components"]
+    keys = set(_all_keys(parts))
+    assert not {k for k in keys if "ground_truth" in k or "label" in k}
+    p = parts[0]
+    assert {r["interval_hours"] for r in p["readings"]} == {0, 24, 96, 168}
+    assert p["prediction"]["verdict"] in ("PASS", "REVIEW", "REJECT")
+    assert "prediction_interval" in p["prediction"]["details"]
+
+
+@pytest.mark.asyncio
+async def test_api_config_exposes_limits_costs_and_learned_thresholds(async_client: AsyncClient):
+    c = (await async_client.get("/api/v1/config")).json()
+    assert c["datasheet_limits"]["leakage_current_ua"] == 50.0
+    assert c["cost"]["fn_cost"] > c["cost"]["fp_cost"]
+    assert c["latest_run"]["final_thresholds"]["source"] == "cost_minimised_on_inner_oof_validation"

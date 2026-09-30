@@ -45,9 +45,14 @@ def test_named_top_contributors_are_the_largest_absolute_contributions(explained
         top_b = max(real, key=lambda c: abs(c["value"]))["feature"]
         assert e["module_b"]["top_contributor"] == top_b
         assert f"Largest Module B contributor to the" in e["summary"] and top_b in e["summary"]
-        top_a = max(e["module_a"]["contributions"], key=lambda c: abs(c["contribution"]))["parameter"]
-        assert e["module_a"]["top_contributor"] == top_a
-        assert f"Largest Module A contributor: {top_a}" in e["summary"]
+        positive = [c for c in e["module_a"]["contributions"] if c["contribution"] > 0]
+        if positive:
+            top_a = max(positive, key=lambda c: c["contribution"])["parameter"]
+            assert e["module_a"]["top_contributor"] == top_a
+            assert f"Largest Module A contributor: {top_a}" in e["summary"]
+        else:  # score 0: no contributor is named, the text says so
+            assert e["module_a"]["top_contributor"] is None
+            assert "no parameter is above its lot median" in e["summary"]
 
 
 def test_module_a_contributions_sum_to_score(explained):

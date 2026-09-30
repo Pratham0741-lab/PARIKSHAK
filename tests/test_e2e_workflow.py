@@ -88,7 +88,8 @@ async def test_full_pipeline_e2e_workflow(async_client: AsyncClient):
     # Explanation is built from this part's model outputs (see tests/test_explanations.py).
     assert explain_data["verdict"] == "REVIEW"
     assert borderline_serial in explain_data["summary"]
-    assert explain_data["module_a"]["top_contributor"] in explain_data["summary"]
+    assert (explain_data["module_a"]["top_contributor"] is None
+            or explain_data["module_a"]["top_contributor"] in explain_data["summary"])
     assert explain_data["module_b"]["top_contributor"] in explain_data["summary"]
     assert explain_data["cv_fold"] is not None
 

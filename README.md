@@ -14,6 +14,27 @@
 
 ---
 
+## 0. Running the frontend and backend together
+
+The React UI (`frontend/`, Vite) talks to the FastAPI backend (`backend/`) through `HttpApi`
+(`frontend/src/data/api.ts`). Every status, score, interval, explanation and metric in the UI comes
+from the backend. An explicitly labelled **offline demo** mode (Source button in the top bar, or
+`VITE_API_MODE=offline`) runs synthetic data with simple client rules; it never uses labels and shows
+no metrics.
+
+```bash
+docker compose up -d burnin_postgres      # PostgreSQL on :5433
+pip install -r requirements.txt
+python scripts/bootstrap.py --no-server   # migrate, seed 10 lots, run the out-of-fold screening pipeline
+cd frontend && npm ci && cd ..
+make dev                                  # backend http://localhost:8000/docs, UI http://localhost:8080
+```
+
+Configuration: `VITE_API_URL` (frontend, default `http://localhost:8000/api/v1`, see
+`frontend/.env.example`) and `CORS_ORIGINS` (backend, comma-separated, see `backend/app/core/config.py`).
+
+---
+
 ## 1. Architectural Overview
 
 This repository houses the end-to-end analytical infrastructure for **ISRO SIH26170**: Anomaly Detection in Component Burn-In and Screening for high-reliability space-grade semiconductor components.

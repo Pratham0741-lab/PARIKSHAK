@@ -2,52 +2,28 @@ import React, { useMemo } from 'react';
 import * as d3 from 'd3';
 
 interface SparklineProps {
-  readings: Record<number, number>; // 0, 24, 96, 168
+  readings: Record<number, number | null>; // 0, 24, 96, 168 (null = no reading)
   isFlagged?: boolean;
   width?: number;
   height?: number;
 }
 
-export const Sparkline: React.FC<SparklineProps> = ({
-  readings,
-  isFlagged = false,
-  width = 44,
-  height = 14,
-}) => {
+export const Sparkline: React.FC<SparklineProps> = ({ readings, isFlagged = false, width = 44, height = 14 }) => {
   const pathD = useMemo(() => {
-    const intervals = [0, 24, 96, 168];
-    const data = intervals.map(t => ({ t, v: readings[t] ?? 0 }));
-
+    const data = [0, 24, 96, 168]
+      .map(t => ({ t, v: readings[t] }))
+      .filter((d): d is { t: number; v: number } => d.v != null);
+    if (data.length < 2) return '';
     const minV = d3.min(data, d => d.v) ?? 0;
     const maxV = d3.max(data, d => d.v) ?? 1;
-    const padding = 2;
-
-    const xScale = d3.scaleLinear().domain([0, 168]).range([padding, width - padding]);
-    const yScale = d3
-      .scaleLinear()
-      .domain([minV * 0.95, maxV * 1.05 || 1])
-      .range([height - padding, padding]);
-
-    const lineGen = d3
-      .line<{ t: number; v: number }>()
-      .x(d => xScale(d.t))
-      .y(d => yScale(d.v));
-
-    return lineGen(data) || '';
+    const x = d3.scaleLinear().domain([0, 168]).range([2, width - 2]);
+    const y = d3.scaleLinear().domain([minV * 0.95, maxV * 1.05 || 1]).range([height - 2, 2]);
+    return d3.line<{ t: number; v: number }>().x(d => x(d.t)).y(d => y(d.v))(data) || '';
   }, [readings, width, height]);
-
-  const strokeColor = isFlagged ? '#D63A2F' : '#8A949B';
 
   return (
     <svg width={width} height={height} className="overflow-visible block">
-      <path
-        d={pathD}
-        fill="none"
-        stroke={strokeColor}
-        strokeWidth={1.25}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d={pathD} fill="none" stroke={isFlagged ? '#D63A2F' : '#8A949B'} strokeWidth={1.25} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 };

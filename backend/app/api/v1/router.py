@@ -9,6 +9,8 @@ from backend.app.api.v1.reviews import router as reviews_router
 from backend.app.api.v1.metrics import router as metrics_router
 from backend.app.api.v1.ingest import router as ingest_router
 from backend.app.api.v1.audit import router as audit_router
+from backend.app.api.v1.parts import router as parts_router
+from backend.app.api.v1.system import router as system_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -18,3 +20,5 @@ api_v1_router.include_router(reviews_router)
 api_v1_router.include_router(metrics_router)
 api_v1_router.include_router(ingest_router)
 api_v1_router.include_router(audit_router)
+api_v1_router.include_router(parts_router)
+api_v1_router.include_router(system_router)

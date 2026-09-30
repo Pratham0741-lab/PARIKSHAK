@@ -1,45 +1,35 @@
-# PARIKSHAK Frontend (v0.9)
-### Burn-In Screening & Anomaly Review for Space-Grade Electronic Components
+# PARIKSHAK Frontend
+### Burn-in screening & anomaly review UI (React + Vite)
 
-PARIKSHAK is a dense, instrument-grade test-engineering web interface built for aerospace semiconductor burn-in screening, kinetic drift forecasting, and QA review governance.
+The UI is a client of the FastAPI backend. Statuses, Module A/B scores, learned thresholds, 168h
+forecasts, conformal prediction intervals, per-part explanations (TreeSHAP + lot-relative z) and
+held-out metrics all come from the backend (`src/data/api.ts`, `HttpApi`). The frontend contains no
+ground-truth labels.
+
+**Offline demo mode** (top bar → Source, or `VITE_API_MODE=offline`) generates a seeded synthetic lot
+and screens it with simple, documented client rules on 0h/24h readings (`src/data/offlineDemo.ts`).
+It is labelled in the UI, is not the ML model, and provides no intervals, contributions or metrics.
 
 ---
 
-## 1. Quickstart & Setup
+## 1. Quickstart
 
-### Requirements
-- Node.js 18+ (tested on Node 20 / 24)
-- npm or yarn
-
-### Installation
 ```bash
 cd frontend
-npm install
+npm ci
+cp .env.example .env          # VITE_API_URL (default http://localhost:8000/api/v1), VITE_API_MODE
+npm run dev -- --port 8080    # or from the repo root: make dev (backend + frontend)
 ```
 
-### Launch Development Server
 ```bash
-npm run dev
+npm test          # Vitest: API mapping, decision payloads, offline-demo guarantees (no labels, 0h/24h only)
+npx tsc --noEmit  # type check
+npm run lint      # ESLint
+npm run build     # production build to dist/
 ```
-The application will launch at `http://localhost:3000` (or `http://localhost:3001` if port 3000 is occupied).
 
-### Run Analytics & CSV Validation Tests
-```bash
-npm test
-```
-Executes the Vitest unit test suite covering:
-- Robust Z-score (Median & MAD)
-- Kinetic drift forecasting & 95% confidence intervals
-- Isolation Forest multivariate anomaly scoring
-- Ledoit-Wolf covariance shrinkage & Mahalanobis distance
-- Precision, Recall, MAE, RMSE, and confusion matrix calculation
-- Real PapaParse CSV parsing and error checking
-
-### Production Build
-```bash
-npm run build
-```
-Compiles TypeScript strictly and builds optimized production assets in `dist/`.
+The production image (`Dockerfile`) builds `dist/` and serves it with nginx; set `VITE_API_URL`
+as a build argument.
 
 ---
 

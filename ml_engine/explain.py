@@ -88,7 +88,9 @@ def build_explanation(pred: Dict[str, Any], readings: List[Dict[str, Any]], seri
     a_rows = [
         {"parameter": p, **a_params[p]} for p in PARAMETERS if p in a_params
     ]
-    a_top = max(a_rows, key=lambda r: abs(r["contribution"] or 0.0)) if a_rows else None
+    # Only positive excursions add to the score; with a score of 0 there is no contributor to name.
+    positive = [r for r in a_rows if (r["contribution"] or 0.0) > 0]
+    a_top = max(positive, key=lambda r: r["contribution"]) if positive else None
     ta = pred.get("threshold_a")
     a_flag = bool(pred.get("module_a_flag"))
 
@@ -126,6 +128,13 @@ def build_explanation(pred: Dict[str, Any], readings: List[Dict[str, Any]], seri
 
     # ---------------- plain language (every number comes from the inputs above)
     lines = [f"{serial} (lot {lot_number}): verdict {pred.get('verdict')}. {pred.get('verdict_reason', '')}"]
+    if a_top is None and a_rows:
+        lines.append(
+            f"Module A (lot-relative outlier): score {_fmt(pred.get('module_a_score'), 2)} "
+            f"{'>=' if a_flag else '<'} learned threshold {_fmt(ta, 2) if ta is not None else 'off'}; no parameter is "
+            f"above its lot median (robust z: "
+            + ", ".join(f"{r['parameter']} {r['robust_z']:+.1f}" for r in a_rows if r["robust_z"] is not None) + ")."
+        )
     if a_top is not None:
         lines.append(
             f"Module A (lot-relative outlier): score {_fmt(pred.get('module_a_score'), 2)} "

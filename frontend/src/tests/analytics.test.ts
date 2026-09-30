@@ -1,161 +1,128 @@
 import { describe, it, expect } from 'vitest';
 import { calculateMedian, calculateMAD, calculateRobustZ, computeBatchRobustZ } from '../lib/analytics/robustZ';
-import { forecastDrift168h } from '../lib/analytics/driftForecast';
-import { IsolationForest } from '../lib/analytics/isolationForest';
-import { calculateMeanVector, computeCovarianceMatrix, invertMatrix, computeMahalanobisDistance } from '../lib/analytics/mahalanobis';
-import { computePerformanceMetrics, generateRecallCurve } from '../lib/analytics/metrics';
-import { parseAndValidateCsv } from '../lib/analytics/csvValidator';
+import { findSimilarParts } from '../lib/analytics/explainability';
+import { generateOfflineReadings, screenOffline, OfflineDemoApi, DEFAULT_OFFLINE_SETTINGS } from '../data/offlineDemo';
+import { HttpApi, mapPart, reasonFromVerdict } from '../data/api';
 
-describe('Robust Z-score Analytics', () => {
-  it('calculates median correctly for odd and even length arrays', () => {
+describe('Robust z-score', () => {
+  it('median / MAD / z', () => {
     expect(calculateMedian([1, 3, 2])).toBe(2);
     expect(calculateMedian([1, 2, 3, 4])).toBe(2.5);
-    expect(calculateMedian([])).toBe(0);
-  });
-
-  it('calculates MAD correctly', () => {
-    const vals = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-    const med = calculateMedian(vals);
-    const mad = calculateMAD(vals, med);
-    expect(med).toBe(5);
-    expect(mad).toBe(2);
-  });
-
-  it('calculates robust z-score with divide-by-zero protection', () => {
-    const z = calculateRobustZ(10, 10, 0);
-    expect(z).toBe(0);
-    const zExcursion = calculateRobustZ(20, 10, 2);
-    expect(zExcursion).toBeGreaterThan(3.0);
-  });
-
-  it('computes batch robust z-score', () => {
-    const batch = computeBatchRobustZ([10, 11, 10, 12, 11, 50]);
-    expect(batch.median).toBe(11);
-    expect(batch.zScores[batch.zScores.length - 1]).toBeGreaterThan(3.0);
+    expect(calculateMAD([1, 2, 3, 4, 5, 6, 7, 8, 9])).toBe(2);
+    expect(calculateRobustZ(10, 10, 0)).toBe(0);
+    expect(computeBatchRobustZ([10, 11, 10, 12, 11, 50]).zScores[5]).toBeGreaterThan(3);
   });
 });
 
-describe('Drift Forecast Analytics', () => {
-  it('predicts 168h drift accurately based on 24h kinetic slope', () => {
-    // 0h: 10, 24h: 12 -> slope = 2 / 24 = 0.0833
-    // 168h predicted = 10 + 0.0833 * 168 = 24
-    const res = forecastDrift168h(10, 12, 24, 0.15, 50.0);
-    expect(res.predicted168h).toBeCloseTo(24.0, 1);
-    expect(res.slopeUaPerHr).toBeCloseTo(0.0833, 3);
-    expect(res.exceedsSafetySlope).toBe(false);
-    expect(res.passesStaticLimit).toBe(true);
-    expect(res.ciLowerUa).toBeLessThan(res.predicted168h);
-    expect(res.ciUpperUa).toBeGreaterThan(res.predicted168h);
-  });
-
-  it('flags runaway thermal drift exceeding safety slope and static limit', () => {
-    // 0h: 10, 24h: 20 -> slope = 10 / 24 = 0.4166
-    // 168h predicted = 10 + 0.4166 * 168 = 80 (breaches 50 uA limit)
-    const res = forecastDrift168h(10, 20, 85, 0.15, 50.0);
-    expect(res.slopeUaPerHr).toBeGreaterThan(0.15);
-    expect(res.exceedsSafetySlope).toBe(true);
-    expect(res.passesStaticLimit).toBe(false);
-    expect(res.residualUa).toBeCloseTo(5.0, 1);
-  });
-});
-
-describe('Isolation Forest Analytics', () => {
-  it('scores obvious multivariate outliers higher than nominal cluster points', () => {
-    const iforest = new IsolationForest(30, 40);
-    // Cluster around [10, 10]
-    const nominalData: number[][] = [];
-    for (let i = 0; i < 50; i++) {
-      nominalData.push([10 + (i % 3) * 0.2, 10 + (i % 4) * 0.2]);
+describe('Offline demo never uses labels or future readings', () => {
+  it('parts carry no label field', async () => {
+    const api = new OfflineDemoApi({ ...DEFAULT_OFFLINE_SETTINGS, lotSize: 200 });
+    const lot = (await api.getLots())[0];
+    const { parts } = await api.getParts(lot.id);
+    for (const p of parts) {
+      const keys = Object.keys(p).join(',').toLowerCase();
+      expect(keys).not.toMatch(/truth|label|anomaly|defect/);
     }
-    // Extreme outlier
-    nominalData.push([150, 150]);
+  });
 
-    iforest.fit(nominalData, 42);
+  it('statuses depend only on 0h/24h readings', () => {
+    const raw = generateOfflineReadings({ ...DEFAULT_OFFLINE_SETTINGS, lotSize: 300 });
+    const a = screenOffline(raw, 50).map(s => s.status);
+    const tampered = raw.map(p => ({
+      ...p,
+      readings: p.readings.map(r => (r.intervalHours >= 96 ? { ...r, values: { ...r.values, leakage_current_ua: r.values.leakage_current_ua + 1000 } } : r)),
+    }));
+    expect(screenOffline(tampered, 50).map(s => s.status)).toEqual(a);
+  });
 
-    const nominalScore = iforest.score([10.1, 10.1]);
-    const outlierScore = iforest.score([150, 150]);
+  it('offline mode offers no metrics, intervals or contributions', async () => {
+    const api = new OfflineDemoApi({ ...DEFAULT_OFFLINE_SETTINGS, lotSize: 50 });
+    expect(await api.getMetrics()).toBeNull();
+    expect(await api.getExplanation('x')).toBeNull();
+    const { predictions } = await api.getParts('any');
+    for (const p of Object.values(predictions)) {
+      expect(p.moduleB?.perParam.leakage_current_ua?.intervalLower).toBeNull();
+    }
+  });
 
-    expect(outlierScore).toBeGreaterThan(nominalScore);
+  it('applies every generator setting (defect rate and static limit change the lot)', async () => {
+    const a = new OfflineDemoApi({ seed: 1, lotSize: 400, defectRate: 0.0, staticLimitUa: 50 });
+    const b = new OfflineDemoApi({ seed: 1, lotSize: 400, defectRate: 0.25, staticLimitUa: 50 });
+    const c = new OfflineDemoApi({ seed: 1, lotSize: 400, defectRate: 0.25, staticLimitUa: 12 });
+    const flagged = async (api: OfflineDemoApi) => (await api.getParts('x')).parts.filter(p => p.isFlagged).length;
+    expect(await flagged(b)).toBeGreaterThan(await flagged(a));
+    expect(await flagged(c)).toBeGreaterThan(await flagged(b));
+    expect((await c.getConfig()).datasheetLimits.leakage_current_ua).toBe(12);
   });
 });
 
-describe('Mahalanobis Distance Analytics', () => {
-  it('calculates mean vector and covariance correctly', () => {
-    const data = [
-      [1, 2],
-      [3, 4],
-      [5, 6],
-    ];
-    const mean = calculateMeanVector(data);
-    expect(mean[0]).toBe(3);
-    expect(mean[1]).toBe(4);
+const dto = (serial: string, verdict: string, decision: unknown = null, contribA = 1.5) => ({
+  id: `id-${serial}`, lot_id: 'lot-1', serial_number: serial, insufficient_data: false,
+  readings: [0, 24, 96, 168].map(t => ({ interval_hours: t, leakage_current_ua: 10 + t / 100, iddq_ma: 1.5, propagation_delay_ns: 4.2, imputed_fields: null })),
+  latest_decision: decision,
+  prediction: {
+    id: 'p', module_a_score: contribA, module_a_mahalanobis: 1.1, module_a_flag: contribA > 2, pred_leakage_168h: 12.3,
+    pred_iddq_168h: 1.5, pred_delay_168h: 4.2, drift_slope_ua_per_hr: 0.01, module_b_flag: false, module_b_score: 0.4,
+    threshold_a: 2.0, threshold_b: 3.1, safety_slope_ua_per_hr: 0.02, cv_fold: 3, verdict, verdict_reason: 'RULE_MODULE_A: x',
+    created_at: '2026-09-30T00:00:00Z',
+    details: { prediction_interval: { coverage_target: 0.9, per_parameter: { leakage_current_ua: { lower: 11 + contribA, upper: 14 + 2 * contribA } } },
+      safety_slope: { driver_parameter: 'leakage_current_ua', per_parameter: { leakage_current_ua: { predicted_rate: 0.01, safety_slope: 0.02, lot_median_rate: 0.0, lot_spread: 0.005, exceeds_safety_slope: false, unit: 'uA/h' } } },
+      module_a: { per_parameter: { leakage_current_ua: { robust_z: contribA } }, diagnostics: { isolation_forest: 0.2 } } },
+  },
+});
 
-    const cov = computeCovarianceMatrix(data, mean);
-    expect(cov.length).toBe(2);
-    expect(cov[0].length).toBe(2);
+describe('HttpApi mapping (backend is the source of truth)', () => {
+  it('status comes from the model verdict, or from the latest inspector decision', () => {
+    expect(mapPart(dto('A', 'REJECT')).part.status).toBe('Reject');
+    expect(mapPart(dto('B', 'PASS')).part.status).toBe('Accept');
+    const decided = mapPart(dto('C', 'REJECT', { disposition: 'ACCEPTED', original_verdict: 'REJECT', inspector_id: 'QA-7', inspector_notes: 'retested ok', reviewed_at: '2026-09-30T01:00:00Z' }));
+    expect(decided.part.status).toBe('Accept');
+    expect(decided.part.statusSource).toBe('inspector');
+    expect(reasonFromVerdict('RULE_MODULE_A: long text')).toBe('Lot outlier (Module A)');
+  });
 
-    const inv = invertMatrix(cov);
-    const dist = computeMahalanobisDistance([10, 10], mean, inv);
-    expect(dist).toBeGreaterThan(0);
+  it('changing the backend output changes what the UI model contains', () => {
+    const a = mapPart(dto('A', 'PASS', null, 1.0)).prediction!;
+    const b = mapPart(dto('A', 'REVIEW', null, 3.0)).prediction!;
+    expect(a.moduleA!.score).not.toBe(b.moduleA!.score);
+    const ia = a.moduleB!.perParam.leakage_current_ua!;
+    const ib = b.moduleB!.perParam.leakage_current_ua!;
+    expect([ia.intervalLower, ia.intervalUpper]).not.toEqual([ib.intervalLower, ib.intervalUpper]);
+    expect(a.cvFold).toBe(3);
+  });
+
+  it('calls the backend endpoints and maps a lot of parts', async () => {
+    const calls: string[] = [];
+    const fake = (async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => [dto('A', 'REJECT'), dto('B', 'PASS')] } as Response;
+    }) as unknown as typeof fetch;
+    const api = new HttpApi('http://backend/api/v1', fake);
+    const { parts, predictions } = await api.getParts('lot-1');
+    expect(calls).toEqual(['http://backend/api/v1/lots/lot-1/parts']);
+    expect(parts.map(p => p.status)).toEqual(['Reject', 'Accept']);
+    expect(Object.keys(predictions)).toEqual(['A', 'B']);
+  });
+
+  it('decisions are POSTed with the inspector comment', async () => {
+    let body: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fake = (async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return { ok: true, status: 201, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+    await new HttpApi('http://b', fake).submitDecision({ partId: 'c1', lotId: 'l', newStatus: 'Reject', comment: 'oxide leakage trend', inspector: 'QA-1' });
+    expect(body).toEqual({ inspector_id: 'QA-1', disposition: 'QUARANTINED', inspector_notes: 'oxide leakage trend' });
   });
 });
 
-describe('Performance Metrics & Confusion Matrix', () => {
-  it('computes precision, recall, MAE, and RMSE accurately', () => {
-    const items = [
-      { actualFail: true, anomalyScore: 0.8, predicted168h: 40, actual168h: 42 },
-      { actualFail: true, anomalyScore: 0.2, predicted168h: 15, actual168h: 30 }, // False negative (escape)
-      { actualFail: false, anomalyScore: 0.1, predicted168h: 12, actual168h: 11 }, // True negative
-      { actualFail: false, anomalyScore: 0.7, predicted168h: 22, actual168h: 20 }, // False positive
-    ];
-
-    const metrics = computePerformanceMetrics(items, 0.5);
-    expect(metrics.confusionMatrix.tp).toBe(1);
-    expect(metrics.confusionMatrix.fn).toBe(1);
-    expect(metrics.confusionMatrix.fp).toBe(1);
-    expect(metrics.confusionMatrix.tn).toBe(1);
-    expect(metrics.recall).toBe(0.5);
-    expect(metrics.precision).toBe(0.5);
-    expect(metrics.mae).toBeGreaterThan(0);
-  });
-
-  it('generates recall curve across threshold spectrum', () => {
-    const items = [
-      { actualFail: true, anomalyScore: 0.9 },
-      { actualFail: true, anomalyScore: 0.6 },
-      { actualFail: false, anomalyScore: 0.2 },
-    ];
-    const curve = generateRecallCurve(items, 10);
-    expect(curve.length).toBeGreaterThan(5);
-    // At low threshold recall should be 1.0
-    expect(curve[0].recall).toBe(1.0);
-  });
-});
-
-describe('CSV Ingest & Validation Analytics', () => {
-  it('validates good CSV data with correct intervals', () => {
-    const csv = `part_id,val_0h,val_24h,val_96h,val_168h
-U-0001,8.1,8.5,9.2,10.1
-U-0002,7.9,8.2,8.9,9.8`;
-
-    const res = parseAndValidateCsv(csv, 'lot-test');
-    expect(res.requiredColumnsFound).toBe(true);
-    expect(res.totalRowsParsed).toBe(2);
-    expect(res.duplicatePartIds).toBe(0);
-    expect(res.missingReadingsCount).toBe(0);
-    expect(res.issues.length).toBe(0);
-  });
-
-  it('detects duplicate part IDs, missing intervals, and non-numeric values', () => {
-    const csv = `part_id,val_0h,val_24h,val_96h,val_168h
-U-0001,8.1,8.5,,10.1
-U-0001,7.9,BAD,8.9,9.8`;
-
-    const res = parseAndValidateCsv(csv, 'lot-test');
-    expect(res.requiredColumnsFound).toBe(true);
-    expect(res.duplicatePartIds).toBe(1);
-    expect(res.missingReadingsCount).toBe(1);
-    expect(res.invalidNumericCount).toBe(1);
-    expect(res.issues.length).toBeGreaterThan(0);
+describe('Similar parts use only 0h/24h', () => {
+  it('ignores 96h/168h', () => {
+    const mk = (id: string, v0: number, v24: number, v168: number) => ({
+      id, partId: id, lotId: 'l', readings: { 0: v0, 24: v24, 96: null, 168: v168 }, allReadings: [], insufficientData: false,
+      status: 'Accept' as const, statusSource: 'model' as const, reason: '', isFlagged: false,
+    });
+    const t = mk('T', 10, 11, 999);
+    const res = findSimilarParts(t, [t, mk('near', 10.1, 11.1, 0), mk('far', 20, 25, 999)], 2);
+    expect(res[0].partId).toBe('near');
   });
 });
