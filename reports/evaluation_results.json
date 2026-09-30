@@ -1,0 +1,200 @@
+{
+  "config": {
+    "components_per_lot": 100,
+    "n_splits": 5,
+    "num_lots": 10,
+    "seed": 42
+  },
+  "held_out": {
+    "detection": {
+      "f1": 0.3701,
+      "false_negative_rate": 0.3542,
+      "false_positive_rate": 0.1958,
+      "fn": 34,
+      "fp": 177,
+      "n": 1000,
+      "precision": 0.2594,
+      "recall": 0.6458,
+      "tn": 727,
+      "tp": 62
+    },
+    "n_excluded_no_truth": 0,
+    "n_predictions": 1000,
+    "n_scored": 1000,
+    "per_class": {
+      "LATE_DRIFT": {
+        "flagged_rate": 0.2917,
+        "n": 24
+      },
+      "LEVEL_OUTLIER": {
+        "flagged_rate": 0.8333,
+        "n": 24
+      },
+      "NORMAL": {
+        "flagged_rate": 0.1958,
+        "n": 904
+      },
+      "STEEP_DRIFT": {
+        "flagged_rate": 0.9167,
+        "n": 24
+      },
+      "SUBTLE_MULTIVARIATE": {
+        "flagged_rate": 0.5417,
+        "n": 24
+      }
+    },
+    "regression": {
+      "iddq_ma": {
+        "linear_baseline": {
+          "mae": 0.6081,
+          "n": 1000,
+          "rmse": 0.7719
+        },
+        "model": {
+          "mae": 0.1011,
+          "n": 1000,
+          "rmse": 0.1351
+        }
+      },
+      "leakage_current_ua": {
+        "linear_baseline": {
+          "mae": 5.9695,
+          "n": 1000,
+          "rmse": 8.3719
+        },
+        "model": {
+          "mae": 3.3578,
+          "n": 1000,
+          "rmse": 6.2653
+        }
+      },
+      "propagation_delay_ns": {
+        "linear_baseline": {
+          "mae": 1.6873,
+          "n": 1000,
+          "rmse": 2.1136
+        },
+        "model": {
+          "mae": 0.2255,
+          "n": 1000,
+          "rmse": 0.2828
+        }
+      }
+    }
+  },
+  "split": {
+    "folds": [
+      {
+        "fold": 0,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8
+      },
+      {
+        "fold": 1,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8
+      },
+      {
+        "fold": 2,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8
+      },
+      {
+        "fold": 3,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8
+      },
+      {
+        "fold": 4,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8
+      }
+    ],
+    "method": "GroupKFold over lots (lot-level cross-fitting); 96h/168h and labels hidden at prediction time",
+    "n_defective": 96,
+    "n_lots": 10,
+    "n_parts": 1000
+  },
+  "train_optimistic": {
+    "detection": {
+      "f1": 0.4425,
+      "false_negative_rate": 0.1979,
+      "false_positive_rate": 0.1936,
+      "fn": 19,
+      "fp": 175,
+      "n": 1000,
+      "precision": 0.3056,
+      "recall": 0.8021,
+      "tn": 729,
+      "tp": 77
+    },
+    "n_excluded_no_truth": 0,
+    "n_predictions": 1000,
+    "n_scored": 1000,
+    "per_class": {
+      "LATE_DRIFT": {
+        "flagged_rate": 0.875,
+        "n": 24
+      },
+      "LEVEL_OUTLIER": {
+        "flagged_rate": 0.7917,
+        "n": 24
+      },
+      "NORMAL": {
+        "flagged_rate": 0.1936,
+        "n": 904
+      },
+      "STEEP_DRIFT": {
+        "flagged_rate": 1.0,
+        "n": 24
+      },
+      "SUBTLE_MULTIVARIATE": {
+        "flagged_rate": 0.5417,
+        "n": 24
+      }
+    },
+    "regression": {
+      "iddq_ma": {
+        "linear_baseline": {
+          "mae": 0.6081,
+          "n": 1000,
+          "rmse": 0.7719
+        },
+        "model": {
+          "mae": 0.04,
+          "n": 1000,
+          "rmse": 0.0519
+        }
+      },
+      "leakage_current_ua": {
+        "linear_baseline": {
+          "mae": 5.9695,
+          "n": 1000,
+          "rmse": 8.3719
+        },
+        "model": {
+          "mae": 0.8212,
+          "n": 1000,
+          "rmse": 1.4535
+        }
+      },
+      "propagation_delay_ns": {
+        "linear_baseline": {
+          "mae": 1.6873,
+          "n": 1000,
+          "rmse": 2.1136
+        },
+        "model": {
+          "mae": 0.092,
+          "n": 1000,
+          "rmse": 0.1176
+        }
+      }
+    }
+  }
+}

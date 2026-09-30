@@ -13,7 +13,8 @@ from backend.app.core.database import SessionLocal
 from backend.app.models import Component, ModelPrediction, ScreeningVerdict
 from data_engine.generator import BurnInSyntheticGenerator
 from ml_engine.module_a_outlier import LotOutlierDetector
-from ml_engine.module_b_drift import DriftPredictor
+from evaluation.splits import lot_holdout_split
+from ml_engine.module_b_drift import DriftPredictor, linear_extrapolation_baseline
 from ml_engine.verdict_engine import ScreeningVerdictEngine
 
 
@@ -71,38 +72,36 @@ def test_module_a_outlier_detection_and_benign_control(
     assert benign_normal_parts["module_a_score"].mean() < 0.35
 
 
-def test_module_b_drift_prediction_and_baseline_comparison(
+def test_module_b_held_out_lots_beats_linear_baseline(
     synthetic_screening_dataset: pd.DataFrame,
 ) -> None:
     """
-    Verifies Module B predicts STEEP_DRIFT from early intervals (0h/24h)
-    and demonstrates test MAE superior to the linear baseline extrapolator.
+    Module B is trained on some lots and evaluated on DIFFERENT lots whose 96h/168h readings are
+    hidden at prediction time. (Replaces an earlier test that scored the model on its own
+    training parts, which overstated accuracy.)
     """
-    df = synthetic_screening_dataset
-    predictor = DriftPredictor(random_state=42)
-    predictor.fit(df)
+    df = synthetic_screening_dataset.copy()
+    df["lot_id"] = df["lot_id"].astype(str)
+    fold = lot_holdout_split(df["lot_id"].unique(), test_fraction=0.25, seed=42)
+    train = df[df["lot_id"].isin(fold.train_lots)]
+    test = df[df["lot_id"].isin(fold.test_lots)]
 
-    # 1. Benchmark comparison against Linear Extrapolator
-    metrics = predictor.evaluate_against_linear_baseline(df, test_size=0.30)
-    leak_metrics = metrics["leakage_current_ua"]
+    predictor = DriftPredictor(random_state=42).fit(train)
+    preds = predictor.predict(test[test["interval_hours"].isin([0, 24])]).set_index("component_id")
+    truth = test[test["interval_hours"] == 168].set_index("component_id")["leakage_current_ua"]
+    base = linear_extrapolation_baseline(test)["leakage_current_ua_168"]
 
-    # LightGBM MAE must be substantially lower than linear baseline (> 35% improvement)
-    assert leak_metrics["lightgbm_mae"] < leak_metrics["linear_mae"]
-    assert leak_metrics["mae_improvement_pct"] > 35.0
+    ids = preds.index
+    model_mae = float(np.mean(np.abs(preds.loc[ids, "pred_leakage_168h"] - truth.loc[ids])))
+    base_mae = float(np.mean(np.abs(base.loc[ids] - truth.loc[ids])))
+    assert model_mae < base_mae
 
-    # 2. Check STEEP_DRIFT detection
-    predictions = predictor.predict(df)
-    meta = df.drop_duplicates(subset=["component_id"])[
-        ["component_id", "ground_truth_label"]
-    ]
-    merged = predictions.merge(meta, on="component_id")
-
-    steep_parts = merged[merged["ground_truth_label"] == "STEEP_DRIFT"]
-    assert len(steep_parts) > 0
-    # Predicted 168h leakage should capture the drift past 30 uA
-    assert (steep_parts["pred_leakage_168h"] > 30.0).all()
-    # Implied drift slopes should be elevated (> 0.10 uA/hr)
-    assert (steep_parts["drift_slope_ua_per_hr"] > 0.08).mean() >= 0.90
+    meta = test.drop_duplicates("component_id").set_index("component_id")["ground_truth_label"]
+    steep = preds[meta.loc[ids] == "STEEP_DRIFT"]
+    normal = preds[meta.loc[ids] == "NORMAL"]
+    assert len(steep) > 0
+    # Held-out steep-drift parts are forecast well above held-out normal parts.
+    assert steep["pred_leakage_168h"].median() > normal["pred_leakage_168h"].quantile(0.95)
 
 
 def test_unified_verdict_mapping_and_borderline_review() -> None:

@@ -413,8 +413,11 @@ async def test_api_benchmark_metrics(async_client: AsyncClient):
     metrics = res.json()
 
     assert metrics["total_components"] == 1000
-    assert metrics["recall"] > 0.70  # High recall constraint
-    assert metrics["false_negative_rate"] < 0.30
+    # Held-out (out-of-fold) metrics; exact values are checked against the committed
+    # evaluation in test_e2e_workflow.py.
+    assert metrics["in_sample_predictions"] == 0
+    assert 0.0 < metrics["recall"] <= 1.0
+    assert metrics["false_negative_rate"] == pytest.approx(1.0 - metrics["recall"], abs=1e-3)
     assert "PASS" in metrics["triage_distribution"]
     assert "REVIEW" in metrics["triage_distribution"]
     assert "REJECT" in metrics["triage_distribution"]

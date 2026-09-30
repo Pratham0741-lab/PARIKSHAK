@@ -6,7 +6,7 @@ Stores Module A outlier metrics, Module B 168h drift predictions, and final Verd
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -14,6 +14,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -103,6 +104,12 @@ class ModelPrediction(Base):
         default=False,
         index=True,
         doc="True if forecasted to violate safety ceiling or excessive drift rate",
+    )
+
+    cv_fold: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Lot-level cross-validation fold whose model produced this out-of-fold prediction",
     )
 
     # Unified Verdict Layer

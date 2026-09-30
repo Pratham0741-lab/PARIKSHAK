@@ -141,10 +141,13 @@ class ScreeningVerdictEngine:
         verdicts: List[str] = []
         reasons: List[str] = []
 
-        has_breach = "is_datasheet_breached" in df.columns
+        # Prefer the breach observed on readings available at decision time (0h/24h).
+        breach_col = next(
+            (c for c in ("observed_static_breach", "is_datasheet_breached") if c in df.columns), None
+        )
 
         for _, row in df.iterrows():
-            breached = bool(row["is_datasheet_breached"]) if has_breach else False
+            breached = bool(row[breach_col]) if breach_col else False
             v, r = self.evaluate_component(
                 is_datasheet_breached=breached,
                 module_a_score=float(row["module_a_score"]),

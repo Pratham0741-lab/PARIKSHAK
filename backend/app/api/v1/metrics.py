@@ -19,6 +19,11 @@ from backend.app.schemas.metrics import BenchmarkMetricsResponse
 
 router = APIRouter(prefix="/metrics", tags=["Metrics"])
 
+PROTOCOL = (
+    "Out-of-fold: GroupKFold over lots; each part is predicted by a model trained on other lots "
+    "from its 0h/24h readings only. Ground truth is joined only at scoring time."
+)
+
 
 @router.get(
     "/benchmark",
@@ -63,8 +68,12 @@ async def get_benchmark_metrics(
             module_b_mae_leakage=0.0,
             linear_baseline_mae_leakage=0.0,
             mae_reduction_pct=0.0,
+            evaluation_protocol=PROTOCOL,
+            out_of_fold_predictions=0,
+            in_sample_predictions=0,
         )
 
+    oof = 0
     tp = 0
     fp = 0
     fn = 0
@@ -86,6 +95,8 @@ async def get_benchmark_metrics(
             benign_count += 1
 
         pred = comp.prediction
+        if pred is not None and pred.cv_fold is not None:
+            oof += 1
         verdict = pred.verdict.value if pred and hasattr(pred.verdict, "value") else (str(pred.verdict) if pred else "PASS")
         triage_counts[verdict] = triage_counts.get(verdict, 0) + 1
 
@@ -143,4 +154,7 @@ async def get_benchmark_metrics(
         module_b_mae_leakage=round(mae_lgbm, 4),
         linear_baseline_mae_leakage=round(mae_linear, 4),
         mae_reduction_pct=round(reduction_pct, 2),
+        evaluation_protocol=PROTOCOL,
+        out_of_fold_predictions=oof,
+        in_sample_predictions=sum(1 for c in components if c.prediction is not None) - oof,
     )
