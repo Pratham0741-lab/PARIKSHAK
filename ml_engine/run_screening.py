@@ -31,12 +31,12 @@ if str(PROJECT_ROOT) not in sys.path:
 import pandas as pd  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
-from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy import delete, select, update  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from backend.app.core.config import settings  # noqa: E402
 from backend.app.core.database import SessionLocal  # noqa: E402
-from backend.app.models import BurnInReading, Component, Lot, ModelPrediction, ScreeningRun  # noqa: E402
+from backend.app.models import BurnInReading, Component, Lot, LotStatus, ModelPrediction, ScreeningRun  # noqa: E402
 from backend.app.services.screening_service import (  # noqa: E402
     artifact_path,
     audit,
@@ -180,6 +180,10 @@ def run_pipeline(
             session.add(run)
             session.flush()
             n = persist_predictions(session, cf.predictions, run_id=run.id)
+            # Every labelled lot now has out-of-fold predictions: its status is SCREENED, not INGESTED.
+            session.execute(update(Lot).where(Lot.id.in_([uuid.UUID(x) for x in df["lot_id"].unique()]))
+                            .values(status=LotStatus.SCREENED))
+            session.commit()
             result["run_id"] = run.id
             d = held_out["detection"]
             audit(session, "MODEL", "screening-pipeline", "Screening run",

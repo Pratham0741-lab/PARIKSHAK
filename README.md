@@ -22,7 +22,18 @@ cd frontend && npm ci && cd ..
 make dev                                   # API http://localhost:8000/docs, UI http://localhost:8080
 ```
 
-Full containerised stack: `docker compose up -d --build` (UI on :8080, API on :8000).
+Full containerised stack, from a clean checkout: `docker compose up --build` (UI :8080, API :8000).
+Startup order: postgres → `burnin_init` (migrations, seeding, out-of-fold screening; exits 0) →
+backend → frontend. The model artifact lives on the `burnin_model_artifacts` volume.
+
+Checks against the running stack:
+
+```bash
+scripts/smoke_test.sh                       # health, ingest, predictions/explanations/decisions,
+                                            # 30 uA-in-10 uA injection, 24h perturbation, restart persistence
+cd frontend && node scripts/screenshots.mjs # all 8 screens -> reports/screenshots/*.png; fails on
+                                            # error banners, console errors, failed requests, stale values
+```
 
 | Command | What it does |
 |---|---|

@@ -138,7 +138,7 @@ export const LotOverviewScreen: React.FC = () => {
         <span className="text-muted text-[11px] font-mono">Showing {rows.length} of {parts.length} parts</span>
       </div>
 
-      <div className="h-[28px] bg-panel border-b border-hairline grid grid-cols-12 items-center px-4 text-[11px] font-mono text-muted uppercase shrink-0 select-none">
+      <div className="h-[28px] bg-panel border-b border-hairline grid grid-cols-12 items-center px-4 text-[11px] font-mono text-muted shrink-0 select-none">
         {header('Part ID', 'partId', 'col-span-2', false)}
         {header('0h µA', 'val0', 'col-span-1')}
         {header('24h µA', 'val24', 'col-span-1')}

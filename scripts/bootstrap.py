@@ -73,7 +73,12 @@ def check_and_seed_database() -> None:
             sys.exit(res.returncode)
         print("[+] Seed completed successfully.", flush=True)
 
-    if pred_count == 0 or comp_count == 0:
+    from backend.app.services.screening_service import artifact_path
+
+    missing_artifact = not artifact_path().exists()
+    if missing_artifact:
+        print(f"[*] No trained model artifact at {artifact_path()}; screening will (re)train it.", flush=True)
+    if pred_count == 0 or comp_count == 0 or missing_artifact:
         print("[*] Running Module A and Module B screening inference pipeline...", flush=True)
         res = subprocess.run([sys.executable, "ml_engine/run_screening.py"])
         if res.returncode != 0:

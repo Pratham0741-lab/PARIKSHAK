@@ -1,3 +1,15 @@
+# One command, from a clean checkout:  docker compose up --build
+# Startup order: postgres (healthy) -> init (migrate, seed, screen; runs to completion)
+#                -> backend (healthy) -> frontend.
+x-backend-env: &backend-env
+  POSTGRES_HOST: burnin_postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: ${POSTGRES_USER:-burnin_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-burnin_secure_pass_2026}
+  POSTGRES_DB: ${POSTGRES_DB:-burn_in_db}
+  APP_ENV: production
+  DEBUG: "false"
+
 services:
   burnin_postgres:
     image: postgres:16-alpine
@@ -21,31 +33,47 @@ services:
     networks:
       - burnin-network
 
-  burnin_backend:
+  # One-shot initialisation: Alembic migrations, seeding (only if empty) and the out-of-fold
+  # screening pipeline (only if predictions or the model artifact are missing). Idempotent.
+  burnin_init:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: burnin_backend
-    restart: unless-stopped
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
-    environment:
-      POSTGRES_HOST: burnin_postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-burnin_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-burnin_secure_pass_2026}
-      POSTGRES_DB: ${POSTGRES_DB:-burn_in_db}
-      APP_ENV: production
-      DEBUG: "false"
+    image: burnin-backend:local
+    container_name: burnin_init
+    command: ["python", "scripts/bootstrap.py", "--no-server"]
+    environment: *backend-env
+    volumes:
+      - model_artifacts:/app/artifacts
     depends_on:
       burnin_postgres:
         condition: service_healthy
+    restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      disable: true  # batch job, serves no HTTP; the backend waits for its successful exit
+    networks:
+      - burnin-network
+
+  burnin_backend:
+    image: burnin-backend:local
+    container_name: burnin_backend
+    restart: unless-stopped
+    command: ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment: *backend-env
+    volumes:
+      # Trained model artifact (thresholds, calibration) must survive container recreation.
+      - model_artifacts:/app/artifacts
+    depends_on:
+      burnin_init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 20s
+      retries: 6
+      start_period: 30s
     networks:
       - burnin-network
 
@@ -69,6 +97,8 @@ services:
 volumes:
   postgres_data:
     name: burnin_postgres_data
+  model_artifacts:
+    name: burnin_model_artifacts
 
 networks:
   burnin-network:

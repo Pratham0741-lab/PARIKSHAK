@@ -49,7 +49,7 @@ export const DecisionQueueScreen: React.FC = () => {
           </div>
         </div>
 
-        <div className="h-[28px] bg-panel border-b border-hairline grid grid-cols-12 items-center px-4 text-[11px] text-muted uppercase shrink-0">
+        <div className="h-[28px] bg-panel border-b border-hairline grid grid-cols-12 items-center px-4 text-[11px] text-muted shrink-0">
           <div className="col-span-2 flex items-center gap-2">
             <input type="checkbox" checked={allChecked} onChange={() => (allChecked ? clearPartSelection() : selectAllParts(rows.map(r => r.partId)))} />
             <span>Part</span>

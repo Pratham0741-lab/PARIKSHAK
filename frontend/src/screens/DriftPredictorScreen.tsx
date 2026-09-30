@@ -7,6 +7,15 @@ import { PARAMS, PARAM_LABEL, PARAM_UNIT } from '../data/types';
 import { Search } from 'lucide-react';
 
 const f = (v: number | null | undefined, nd = 3) => (v == null ? '–' : v.toFixed(nd));
+// Serials often repeat the lot number: strip the prefix shared by ALL parts of the lot (cut at a '-')
+// so the narrow list stays readable and unambiguous; the full ID is shown on hover.
+function commonDashPrefix(ids: string[]): string {
+  if (ids.length < 2) return '';
+  let pre = ids[0];
+  for (const id of ids) while (!id.startsWith(pre)) pre = pre.slice(0, -1);
+  const cut = pre.lastIndexOf('-');
+  return cut >= 0 ? pre.slice(0, cut + 1) : '';
+}
 
 export const DriftPredictorScreen: React.FC = () => {
   const { parts, predictions, selectedPartId, selectPart, config, mode } = useStore();
@@ -30,6 +39,7 @@ export const DriftPredictorScreen: React.FC = () => {
   const b = pred?.moduleB ?? null;
   const leak = b?.perParam.leakage_current_ua ?? null;
 
+  const prefix = useMemo(() => commonDashPrefix(parts.map(p => p.partId)), [parts]);
   const listRef = useRef<HTMLDivElement>(null);
   const virt = useVirtualizer({ count: filtered.length, getScrollElement: () => listRef.current, estimateSize: () => 28, overscan: 10 });
 
@@ -44,7 +54,7 @@ export const DriftPredictorScreen: React.FC = () => {
               className="w-full bg-panel border border-hairline pl-7 pr-2 py-1 focus:outline-none" />
           </div>
         </div>
-        <div className="h-[26px] grid grid-cols-12 items-center px-2 text-[11px] text-muted uppercase border-b border-hairline">
+        <div className="h-[26px] grid grid-cols-12 items-center px-2 text-[11px] text-muted border-b border-hairline">
           <span className="col-span-5">Part</span><span className="col-span-4 text-right">Fcst 168h</span><span className="col-span-3 text-right">Trend</span>
         </div>
         <div ref={listRef} className="flex-1 overflow-y-auto">
@@ -56,7 +66,7 @@ export const DriftPredictorScreen: React.FC = () => {
                 <div key={p.id} onClick={() => selectPart(p.partId)}
                   style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: vr.size, transform: `translateY(${vr.start}px)` }}
                   className={`grid grid-cols-12 items-center px-2 border-b border-hairline/40 cursor-pointer ${p.partId === part?.partId ? 'bg-white border-l-2 border-l-reject font-bold' : 'hover:bg-workspace/80'}`}>
-                  <span className={`col-span-5 truncate ${p.isFlagged ? 'text-reject' : ''}`}>{p.partId}</span>
+                  <span title={p.partId} className={`col-span-5 truncate ${p.isFlagged ? 'text-reject' : ''}`}>{p.partId.slice(prefix.length)}</span>
                   <span className="col-span-4 text-right tabular-nums">{f(fc, 2)}</span>
                   <div className="col-span-3 flex justify-end"><Sparkline readings={p.readings} isFlagged={p.isFlagged} /></div>
                 </div>
