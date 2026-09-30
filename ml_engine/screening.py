@@ -29,7 +29,8 @@ from ml_engine.module_b_drift import DriftPredictor
 from ml_engine.safety_slope import COLD_START_K, drift_rates, lot_statistics, safety_slopes, spread_floors
 from ml_engine.verdict_engine import PRED_COLUMN, ScreeningVerdictEngine
 
-READING_COLUMNS = ["component_id", "lot_id", "interval_hours", *PARAMETERS]
+# temperature_c is lot metadata (a test condition), carried on each row; it is not a label.
+READING_COLUMNS = ["component_id", "lot_id", "interval_hours", *PARAMETERS, "temperature_c"]
 LABEL_COLUMNS = ("ground_truth_label", "ground_truth_flag", "is_datasheet_breached", "is_benign_high_lot")
 DATASHEET_LIMITS = ScreeningVerdictEngine.datasheet_limits()
 # Conformalised quantile regression: target coverage of the Module B prediction interval.

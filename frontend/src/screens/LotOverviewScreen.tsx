@@ -4,6 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import * as d3 from 'd3';
 import { useStore } from '../store/useStore';
 import { StatusMarker } from '../components/common/StatusMarker';
+import { LotConditions } from '../components/common/LotConditions';
 import { calculateMedian, calculateMAD } from '../lib/analytics/robustZ';
 import { Search, ArrowUpDown } from 'lucide-react';
 
@@ -81,6 +82,7 @@ export const LotOverviewScreen: React.FC = () => {
             <span>Parts: <strong className="text-main font-mono">{parts.length.toLocaleString()}</strong></span>
             <span>Model verdicts: <strong className="text-main font-mono">{activeLot ? `${activeLot.passCount} pass / ${activeLot.reviewCount} review / ${activeLot.rejectCount} reject` : '–'}</strong></span>
           </div>
+          <LotConditions lot={activeLot} className="text-[11px] text-muted mt-0.5 font-sans" />
         </div>
         <div className="text-right text-[11px] text-muted font-sans">
           <div>Created: <span className="font-mono text-main">{activeLot?.createdAt ? new Date(activeLot.createdAt).toLocaleString() : '–'}</span></div>

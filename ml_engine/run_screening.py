@@ -83,6 +83,7 @@ def fetch_screening_data(session: Session) -> pd.DataFrame:
             Component.ground_truth_label,
             Component.ground_truth_flag,
             Lot.lot_number,
+            Lot.temperature_c,
             BurnInReading.interval_hours,
             BurnInReading.leakage_current_ua,
             BurnInReading.iddq_ma,

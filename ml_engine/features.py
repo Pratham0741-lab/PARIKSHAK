@@ -101,6 +101,14 @@ def build_early_features(df: pd.DataFrame, feature_set: str = "v1") -> pd.DataFr
     elif feature_set != "v1":
         raise ValueError(f"unknown feature_set {feature_set!r}; expected one of {FEATURE_SETS}")
 
+    # Lot-level test condition from lot METADATA (not a reading): burn-in temperature. NaN when unknown,
+    # which LightGBM treats as missing. Constant within a lot, never derived from 96h/168h.
+    if "temperature_c" in early.columns:
+        temp = early.groupby("component_id")["temperature_c"].first()
+        feats["lot_temperature_c"] = feats["component_id"].map(temp).astype(float).to_numpy()
+    else:
+        feats["lot_temperature_c"] = np.nan
+
     feats = feats.set_index("component_id")
     assert_no_future_features(feats.columns)
     return feats

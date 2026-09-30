@@ -44,6 +44,13 @@ export interface Lot {
   passCount: number;
   reviewCount: number;
   rejectCount: number;
+  /** Burn-in test conditions (data). Fields listed in conditionsAssumed were defaulted, not supplied. */
+  temperatureC: number | null;
+  testParameter: string | null;
+  unit: string | null;
+  staticLimit: number | null;
+  conditionsAssumed: string[];
+  sourceDetail: Record<string, unknown> | null;
 }
 
 export interface Reading {

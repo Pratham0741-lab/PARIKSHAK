@@ -282,6 +282,8 @@ export class HttpApi implements ParikshakApi {
       id: l.id, lotNumber: l.lot_number, waferId: l.wafer_id ?? null, status: l.status, source: l.source,
       createdAt: l.created_at, totalParts: l.total_components, passCount: l.pass_count,
       reviewCount: l.review_count, rejectCount: l.reject_count,
+      temperatureC: num(l.temperature_c), testParameter: l.test_parameter ?? null, unit: l.unit ?? null,
+      staticLimit: num(l.static_limit), conditionsAssumed: l.conditions_assumed ?? [], sourceDetail: l.source_detail ?? null,
     }));
   }
 

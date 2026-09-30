@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { Printer, Download } from 'lucide-react';
 import { StatusMarker } from '../components/common/StatusMarker';
+import { LotConditions } from '../components/common/LotConditions';
 
 export const AuditReportScreen: React.FC = () => {
   const { parts, predictions, activeLot, auditEvents, inspector, config, api } = useStore();
@@ -106,6 +107,7 @@ export const AuditReportScreen: React.FC = () => {
 
           <Section title="3. Screening configuration">
             <div className="space-y-0.5 text-[10px]">
+              <div>Burn-in test conditions: <LotConditions lot={activeLot} /></div>
               <div>Datasheet limits: {config ? Object.entries(config.datasheetLimits).map(([k, v]) => `${k} ${v}`).join(', ') : '–'}</div>
               <div>Decision cost: FN {Number.isNaN(config?.fnCost) ? '–' : config?.fnCost} / FP {Number.isNaN(config?.fpCost) ? '–' : config?.fpCost} · threshold strategy {config?.thresholdStrategy}</div>
               <div>Model run: {config?.latestRun ? `${config.latestRun.id} (${new Date(config.latestRun.createdAt).toLocaleString()})` : 'n/a'}</div>

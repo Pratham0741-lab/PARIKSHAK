@@ -5,6 +5,7 @@ zero-filled), and screens the lot through Modules A and B with the persisted pro
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Dict, Optional
@@ -18,6 +19,7 @@ from backend.app.core.database import SessionLocal
 from backend.app.models import BurnInReading, Component, Lot, LotStatus
 from backend.app.services.ingest import PARAMETERS, parse_csv
 from backend.app.services.screening_service import audit, load_model, screen_lot
+from ml_engine.conditions import resolve_conditions
 from ml_engine.verdict_engine import ScreeningVerdictEngine
 
 router = APIRouter(prefix="/ingest", tags=["Ingest"])
@@ -28,6 +30,13 @@ class IngestRequest(BaseModel):
     lot_number: Optional[str] = Field(None, max_length=64, description="Lot number; generated if omitted")
     wafer_id: Optional[str] = Field(None, max_length=64)
     actor: str = Field("QA Inspector", max_length=64, description="Who performed the ingest (audit log)")
+    filename: Optional[str] = Field(None, max_length=255, description="Uploaded file name (provenance)")
+    # Burn-in test conditions; these override lot-level CSV columns. Missing values are defaulted
+    # (ml_engine/conditions.py) and recorded as assumed.
+    temperature_c: Optional[float] = Field(None, ge=-60, le=300)
+    test_parameter: Optional[str] = Field(None, description="leakage | iddq | delay")
+    unit: Optional[str] = Field(None, max_length=16)
+    static_limit: Optional[float] = Field(None, gt=0)
 
 
 class IngestResponse(BaseModel):
@@ -41,6 +50,12 @@ def _ingest_sync(req: IngestRequest) -> IngestResponse:
     parsed = parse_csv(req.csv)
     if not parsed.ok or not parsed.parts:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=parsed.summary())
+    supplied = {**parsed.conditions, **{k: getattr(req, k) for k in ("temperature_c", "test_parameter", "unit",
+                                                                   "static_limit") if getattr(req, k) is not None}}
+    try:
+        conditions, assumed = resolve_conditions(supplied)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     model = load_model()  # fail before writing anything if there is no trained model
     limits = ScreeningVerdictEngine.datasheet_limits()
     lot_number = req.lot_number or f"INGEST-{datetime.now(UTC):%Y%m%d-%H%M%S}"
@@ -48,7 +63,11 @@ def _ingest_sync(req: IngestRequest) -> IngestResponse:
     with SessionLocal() as session:
         if session.scalar(select(Lot.id).where(Lot.lot_number == lot_number)):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Lot {lot_number} already exists")
-        lot = Lot(lot_number=lot_number, wafer_id=req.wafer_id, status=LotStatus.INGESTED, source="CSV_INGEST")
+        lot = Lot(lot_number=lot_number, wafer_id=req.wafer_id, status=LotStatus.INGESTED, source="CSV_INGEST",
+                  **conditions, conditions_assumed=assumed,
+                  source_detail={"kind": "UPLOADED", "file": req.filename or "(pasted CSV)",
+                                 "sha256": hashlib.sha256(req.csv.encode()).hexdigest(),
+                                 "rows": parsed.rows_total})
         session.add(lot)
         session.flush()
 
@@ -72,6 +91,8 @@ def _ingest_sync(req: IngestRequest) -> IngestResponse:
         if readings:
             session.execute(insert(BurnInReading), readings)
         summary = parsed.summary()
+        summary["conditions"] = conditions
+        summary["conditions_assumed"] = assumed
         audit(session, "INGEST", req.actor, "Lot ingested",
               f"{lot_number}: {summary['parts_accepted']} parts accepted, {summary['rows_rejected']} rows rejected, "
               f"{summary['imputed_cells']} cells imputed, {summary['insufficient_data_parts']} parts with insufficient data",

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,6 +20,12 @@ class LotSummary(BaseModel):
     wafer_id: Optional[str] = Field(None, description="Source semiconductor wafer identifier")
     status: str = Field(..., description="Current processing lifecycle status")
     source: str = Field("SYNTHETIC", description="SYNTHETIC (labelled generator data) or CSV_INGEST")
+    temperature_c: Optional[float] = Field(None, description="Burn-in temperature (degC)")
+    test_parameter: Optional[str] = None
+    unit: Optional[str] = None
+    static_limit: Optional[float] = None
+    conditions_assumed: List[str] = Field(default_factory=list, description="Condition fields that were defaulted")
+    source_detail: Optional[Dict[str, Any]] = Field(None, description="Provenance (file + hash, or generator + seed)")
     total_components: int = Field(..., description="Total component count in lot")
     pass_count: int = Field(0, description="Components triaged as PASS")
     review_count: int = Field(0, description="Components triaged as REVIEW")

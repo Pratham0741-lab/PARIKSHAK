@@ -73,6 +73,7 @@ class IngestResult:
     missing_cells: int = 0
     imputed_cells: int = 0
     missing_columns: List[str] = field(default_factory=list)
+    conditions: Dict[str, Any] = field(default_factory=dict)  # lot-level test conditions found in the file
 
     @property
     def insufficient_data_parts(self) -> int:
@@ -90,6 +91,7 @@ class IngestResult:
             "imputed_cells": self.imputed_cells,
             "insufficient_data_parts": self.insufficient_data_parts,
             "missing_columns": self.missing_columns,
+            "conditions_in_file": self.conditions,
             "issues": [i.as_dict() for i in self.issues],
         }
 
@@ -107,6 +109,39 @@ def _parse_cell(raw: Optional[str]):
     if v < 0:
         return None, "negative"
     return v, None
+
+
+CONDITION_COLUMNS = {
+    "temperature_c": ("temperature_c", "temperature", "temp_c", "temp", "burn_in_temperature"),
+    "test_parameter": ("test_parameter", "parameter", "param"),
+    "unit": ("unit", "units"),
+    "static_limit": ("static_limit", "limit", "datasheet_limit", "spec_limit"),
+}
+
+
+def _lot_conditions(header: List[str], rows: List[List[str]], issues: List[Issue]) -> Dict[str, Any]:
+    """Optional lot-level condition columns: one value per lot (the most common value if rows disagree)."""
+    found: Dict[str, Any] = {}
+    for key, aliases in CONDITION_COLUMNS.items():
+        col = next((header.index(a) for a in aliases if a in header), None)
+        if col is None:
+            continue
+        values = [r[col].strip() for r in rows if col < len(r) and r[col].strip()]
+        if not values:
+            continue
+        common = max(set(values), key=values.count)
+        if len(set(values)) > 1:
+            issues.append(Issue(0, f"Column {header[col]!r} has {len(set(values))} different values; using the most "
+                                   f"common one ({common!r}) for the lot", "warning", column=header[col]))
+        if key in ("temperature_c", "static_limit"):
+            try:
+                found[key] = float(common)
+            except ValueError:
+                issues.append(Issue(0, f"Column {header[col]!r} value {common!r} is not numeric; ignored", "error",
+                                    column=header[col]))
+        else:
+            found[key] = common
+    return found
 
 
 def parse_csv(text: str) -> IngestResult:
@@ -127,6 +162,7 @@ def parse_csv(text: str) -> IngestResult:
     optional_present = [h for h in OPTIONAL_INTERVALS if all(column(p, h) in idx for p in PARAMETERS)]
 
     res = IngestResult(ok=True, parts=[], issues=[], rows_total=len(rows) - 1)
+    res.conditions = _lot_conditions(header, rows[1:], res.issues)
     seen: Dict[str, int] = {}
     for rnum, r in enumerate(rows[1:], start=2):
         pid = r[idx[id_col]].strip() if idx[id_col] < len(r) else ""
