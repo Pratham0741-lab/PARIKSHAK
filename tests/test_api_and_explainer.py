@@ -1,240 +1,17 @@
 """
-Automated Unit and Integration Tests for Phase 3:
-- DeterministicExplainer unit tests across defect classes (Level Outlier, Steep Drift, Subtle Multivariate, Nominal).
-- Safe division & edge cases.
-- FastAPI REST API async integration tests with httpx.AsyncClient.
+FastAPI REST API integration tests (httpx.AsyncClient). Model-based explanation tests live in
+tests/test_explanations.py (they replace the former DeterministicExplainer unit tests, which
+asserted risk categories derived from hand-set constants unrelated to the model's decision).
 """
 
 from __future__ import annotations
 
 import uuid
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.app.main import app
-from backend.app.models.prediction import ScreeningVerdict
-from backend.app.models.review import ReviewDisposition
-from backend.app.services.local_explainer import DeterministicExplainer
-
-
-# ==============================================================================
-# Unit Tests: DeterministicExplainer
-# ==============================================================================
-
-@pytest.fixture
-def explainer() -> DeterministicExplainer:
-    return DeterministicExplainer()
-
-
-@pytest.fixture
-def baseline_lot_readings():
-    """Generates synthetic baseline readings for 10 lot components across 0h, 24h, 96h, 168h."""
-    readings = []
-    for comp_idx in range(10):
-        c_id = uuid.uuid4()
-        for h in [0, 24, 96, 168]:
-            readings.append({
-                "component_id": c_id,
-                "interval_hours": h,
-                "leakage_current_ua": 3.0 + 0.1 * comp_idx + 0.005 * h,
-                "iddq_ma": 0.45 + 0.01 * comp_idx,
-                "propagation_delay_ns": 4.2 + 0.02 * comp_idx,
-            })
-    return readings
-
-
-def test_explainer_level_outlier_identification(explainer, baseline_lot_readings):
-    """Verify that LEVEL_OUTLIER with high 0h reading is classified as LATENT_LOT_OUTLIER."""
-    lot_stats = explainer.compute_lot_statistics(baseline_lot_readings)
-
-    comp_data = {
-        "id": uuid.uuid4(),
-        "serial_number": "SN-OUTLIER-01",
-        "lot_number": "LOT-2026-TEST",
-        "wafer_id": "WFR-01",
-        "ground_truth_label": "LEVEL_OUTLIER",
-        "ground_truth_flag": True,
-        "is_datasheet_breached": False,
-    }
-
-    # High initial leakage: 12.0 uA vs lot median ~3.45 uA (MAD ~0.25 -> Z_MAD > 30)
-    comp_readings = [
-        {"interval_hours": 0, "leakage_current_ua": 12.0, "iddq_ma": 0.50, "propagation_delay_ns": 4.3},
-        {"interval_hours": 24, "leakage_current_ua": 12.1, "iddq_ma": 0.51, "propagation_delay_ns": 4.31},
-    ]
-
-    pred_data = {
-        "module_a_score": 0.92,
-        "module_a_mahalanobis": 8.5,
-        "module_a_flag": True,
-        "pred_leakage_168h": 12.5,
-        "pred_iddq_168h": 0.52,
-        "pred_delay_168h": 4.35,
-        "drift_slope_ua_per_hr": 0.004,
-        "module_b_flag": False,
-        "verdict": "REJECT",
-        "verdict_reason": "RULE_EXTREME_OUTLIER: Module A spatial anomaly score exceeds critical limit.",
-    }
-
-    res = explainer.explain_component(comp_data, comp_readings, lot_stats, pred_data)
-
-    assert res["risk_category"] == "LATENT_LOT_OUTLIER"
-    assert res["primary_parameter"] == "leakage_current_ua"
-    assert res["recommended_action"] == "QUARANTINE_FLIGHT_HARDWARE"
-    assert "LATENT_LOT_OUTLIER" in res["executive_summary"]
-    assert "OUTLIER" in res["technical_justification"]
-    assert res["parameter_metrics"]["leakage_current_ua"]["max_abs_z_mad"] >= 4.0
-
-
-def test_explainer_steep_drift_identification(explainer, baseline_lot_readings):
-    """Verify that STEEP_DRIFT part with severe slope is classified as CRITICAL_RUNAWAY."""
-    lot_stats = explainer.compute_lot_statistics(baseline_lot_readings)
-
-    comp_data = {
-        "id": uuid.uuid4(),
-        "serial_number": "SN-RUNAWAY-02",
-        "lot_number": "LOT-2026-TEST",
-        "wafer_id": "WFR-01",
-        "ground_truth_label": "STEEP_DRIFT",
-        "ground_truth_flag": True,
-        "is_datasheet_breached": False,
-    }
-
-    # Nominal at 0h (3.2 uA), jumps to 9.5 uA at 24h -> slope (9.5 - 3.2)/24 = 0.2625 uA/hr
-    comp_readings = [
-        {"interval_hours": 0, "leakage_current_ua": 3.2, "iddq_ma": 0.50, "propagation_delay_ns": 4.2},
-        {"interval_hours": 24, "leakage_current_ua": 9.5, "iddq_ma": 0.70, "propagation_delay_ns": 4.3},
-    ]
-
-    pred_data = {
-        "module_a_score": 0.45,
-        "module_a_mahalanobis": 2.1,
-        "module_a_flag": False,
-        "pred_leakage_168h": 58.4,  # Breaches 50 uA ceiling
-        "pred_iddq_168h": 1.2,
-        "pred_delay_168h": 4.8,
-        "drift_slope_ua_per_hr": 0.2625,
-        "module_b_flag": True,
-        "verdict": "REJECT",
-        "verdict_reason": "RULE_RUNAWAY_DRIFT: Severe leakage drift rate indicates runaway kinetics.",
-    }
-
-    res = explainer.explain_component(comp_data, comp_readings, lot_stats, pred_data)
-
-    assert res["risk_category"] == "CRITICAL_RUNAWAY"
-    assert res["recommended_action"] == "QUARANTINE_FLIGHT_HARDWARE"
-    assert res["primary_parameter"] == "leakage_current_ua"
-    assert "CRITICAL_RUNAWAY" in res["executive_summary"]
-    assert "58.4" in res["technical_justification"]
-
-
-def test_explainer_subtle_multivariate_identification(explainer, baseline_lot_readings):
-    """Verify that SUBTLE_MULTIVARIATE Part is classified as SUBTLE_DEGRADATION and maps to HOLD_FOR_96H_CHECK."""
-    lot_stats = explainer.compute_lot_statistics(baseline_lot_readings)
-
-    comp_data = {
-        "id": uuid.uuid4(),
-        "serial_number": "SN-SUBTLE-03",
-        "lot_number": "LOT-2026-TEST",
-        "wafer_id": "WFR-01",
-        "ground_truth_label": "SUBTLE_MULTIVARIATE",
-        "ground_truth_flag": True,
-        "is_datasheet_breached": False,
-    }
-
-    # Readings moderately higher across all parameters, but individually < 4.0 MAD
-    comp_readings = [
-        {"interval_hours": 0, "leakage_current_ua": 3.7, "iddq_ma": 0.52, "propagation_delay_ns": 4.35},
-        {"interval_hours": 24, "leakage_current_ua": 4.2, "iddq_ma": 0.55, "propagation_delay_ns": 4.38},
-    ]
-
-    pred_data = {
-        "module_a_score": 0.65,
-        "module_a_mahalanobis": 3.8,  # High Mahalanobis distance
-        "module_a_flag": True,
-        "pred_leakage_168h": 12.0,
-        "pred_iddq_168h": 0.70,
-        "pred_delay_168h": 4.5,
-        "drift_slope_ua_per_hr": 0.02,
-        "module_b_flag": False,
-        "verdict": "REVIEW",
-        "verdict_reason": "RULE_BORDERLINE: Module A lot outlier flagged (score=0.650).",
-    }
-
-    res = explainer.explain_component(comp_data, comp_readings, lot_stats, pred_data)
-
-    assert res["risk_category"] == "SUBTLE_DEGRADATION"
-    assert res["recommended_action"] == "HOLD_FOR_96H_CHECK"
-    assert "SUBTLE_DEGRADATION" in res["executive_summary"]
-    assert "D_M" in res["technical_justification"]
-
-
-def test_explainer_nominal_component(explainer, baseline_lot_readings):
-    """Verify that nominal parts are assigned NOMINAL risk and PASS_FLIGHT_READY."""
-    lot_stats = explainer.compute_lot_statistics(baseline_lot_readings)
-
-    comp_data = {
-        "id": uuid.uuid4(),
-        "serial_number": "SN-NOMINAL-04",
-        "lot_number": "LOT-2026-TEST",
-        "wafer_id": "WFR-01",
-        "ground_truth_label": "NORMAL",
-        "ground_truth_flag": False,
-        "is_datasheet_breached": False,
-    }
-
-    comp_readings = [
-        {"interval_hours": 0, "leakage_current_ua": 3.45, "iddq_ma": 0.50, "propagation_delay_ns": 4.29},
-        {"interval_hours": 24, "leakage_current_ua": 3.50, "iddq_ma": 0.50, "propagation_delay_ns": 4.30},
-    ]
-
-    pred_data = {
-        "module_a_score": 0.12,
-        "module_a_mahalanobis": 0.8,
-        "module_a_flag": False,
-        "pred_leakage_168h": 4.2,
-        "pred_iddq_168h": 0.52,
-        "pred_delay_168h": 4.32,
-        "drift_slope_ua_per_hr": 0.002,
-        "module_b_flag": False,
-        "verdict": "PASS",
-        "verdict_reason": "RULE_NOMINAL: Component within lot baseline envelope.",
-    }
-
-    res = explainer.explain_component(comp_data, comp_readings, lot_stats, pred_data)
-
-    assert res["risk_category"] == "NOMINAL"
-    assert res["recommended_action"] == "PASS_FLIGHT_READY"
-    assert "nominal parametric performance" in res["executive_summary"]
-
-
-def test_explainer_divide_by_zero_safety(explainer):
-    """Verify robust protection when all lot readings are identical (MAD=0)."""
-    identical_readings = [
-        {"component_id": uuid.uuid4(), "interval_hours": 0, "leakage_current_ua": 5.0, "iddq_ma": 1.0, "propagation_delay_ns": 4.0},
-        {"component_id": uuid.uuid4(), "interval_hours": 0, "leakage_current_ua": 5.0, "iddq_ma": 1.0, "propagation_delay_ns": 4.0},
-    ]
-    lot_stats = explainer.compute_lot_statistics(identical_readings)
-
-    assert lot_stats["leakage_current_ua"][0]["mad"] >= 1e-6
-
-    comp_data = {
-        "id": uuid.uuid4(),
-        "serial_number": "SN-ZERO-DIV",
-        "lot_number": "LOT-ZERO",
-        "wafer_id": "WFR-ZERO",
-        "ground_truth_label": "NORMAL",
-        "ground_truth_flag": False,
-        "is_datasheet_breached": False,
-    }
-    comp_readings = [
-        {"interval_hours": 0, "leakage_current_ua": 5.5, "iddq_ma": 1.0, "propagation_delay_ns": 4.0}
-    ]
-
-    # Should not raise ZeroDivisionError
-    res = explainer.explain_component(comp_data, comp_readings, lot_stats)
-    assert res is not None
-    assert "parameter_metrics" in res
 
 
 # ==============================================================================
@@ -363,12 +140,12 @@ async def test_api_component_profile_and_explain(async_client: AsyncClient):
     assert exp_res.status_code == 200
     exp = exp_res.json()
     assert exp["component_id"] == comp_id
-    assert exp["risk_category"] in ["CRITICAL_RUNAWAY", "LATENT_LOT_OUTLIER", "SUBTLE_DEGRADATION", "NOMINAL"]
-    assert exp["recommended_action"] in ["QUARANTINE_FLIGHT_HARDWARE", "HOLD_FOR_96H_CHECK", "PASS_FLIGHT_READY"]
-    assert len(exp["executive_summary"]) > 20
-    assert "# Engineering Screening Justification" in exp["technical_justification"]
-    assert "drift_metrics" in exp
-    assert "lot_comparison" in exp
+    assert exp["verdict"] == profile["prediction"]["verdict"]
+    assert exp["module_a"]["score"] == pytest.approx(profile["prediction"]["module_a_score"], abs=1e-3)
+    assert len(exp["module_a"]["contributions"]) == 3
+    assert len(exp["module_b"]["contributions"]) > 0
+    assert exp["module_b"]["top_contributor"] in exp["summary"]
+    assert exp["module_a"]["top_contributor"] in exp["summary"]
 
 
 @pytest.mark.asyncio

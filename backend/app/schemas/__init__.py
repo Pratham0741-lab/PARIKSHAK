@@ -16,11 +16,7 @@ from backend.app.schemas.component import (
     PaginatedComponentsResponse,
     ReadingItem,
 )
-from backend.app.schemas.explanation import (
-    DriftMetrics,
-    ExplanationResponse,
-    LotComparison,
-)
+from backend.app.schemas.explanation import ExplanationResponse
 from backend.app.schemas.review import (
     ReviewActionRequest,
     ReviewActionResponse,
@@ -38,9 +34,7 @@ __all__ = [
     "ModelPredictionItem",
     "PaginatedComponentsResponse",
     "ReadingItem",
-    "DriftMetrics",
     "ExplanationResponse",
-    "LotComparison",
     "ReviewActionRequest",
     "ReviewActionResponse",
     "ReviewItem",

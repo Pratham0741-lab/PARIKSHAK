@@ -25,16 +25,12 @@ from backend.app.schemas.component import (
     PaginatedComponentsResponse,
     ReadingItem,
 )
-from backend.app.schemas.explanation import (
-    DriftMetrics,
-    ExplanationResponse,
-    LotComparison,
-)
+from backend.app.schemas.explanation import ExplanationResponse
 from backend.app.schemas.review import ReviewItem
-from backend.app.services.local_explainer import DeterministicExplainer
+from backend.app.services.lot_stats import compute_lot_statistics
+from ml_engine.explain import build_explanation
 
 router = APIRouter(prefix="/components", tags=["Components"])
-explainer = DeterministicExplainer()
 
 
 @router.get("", response_model=PaginatedComponentsResponse, summary="Query components with pagination and triage filters")
@@ -179,7 +175,7 @@ async def get_component_profile(
             }
             for r in lot_reading_rows
         ]
-        lot_envelope = explainer.compute_lot_statistics(readings_dicts)
+        lot_envelope = compute_lot_statistics(readings_dicts)
 
     # Format readings
     readings_items = [
@@ -248,64 +244,49 @@ async def get_component_profile(
     )
 
 
+def prediction_dict(p: ModelPrediction) -> Dict[str, Any]:
+    return {
+        "module_a_score": p.module_a_score,
+        "module_a_flag": p.module_a_flag,
+        "module_b_score": p.module_b_score,
+        "module_b_flag": p.module_b_flag,
+        "threshold_a": p.threshold_a,
+        "threshold_b": p.threshold_b,
+        "pred_leakage_168h": p.pred_leakage_168h,
+        "pred_iddq_168h": p.pred_iddq_168h,
+        "pred_delay_168h": p.pred_delay_168h,
+        "verdict": p.verdict.value if hasattr(p.verdict, "value") else str(p.verdict),
+        "verdict_reason": p.verdict_reason,
+        "details": p.details or {},
+    }
+
+
 @router.get(
     "/{component_id}/explain",
     response_model=ExplanationResponse,
-    summary="Generate deterministic engineering explanation for component triage",
+    summary="Per-part explanation generated from this part's model outputs",
 )
 async def explain_component(
     component_id: uuid.UUID,
     db: AsyncSession = Depends(get_async_db),
 ) -> ExplanationResponse:
     """
-    Runs the local DeterministicExplainer engine on the component without any external LLM APIs.
-    Returns robust MAD deviations, primary driving parameters, risk categorization,
-    plain-language executive summary, and complete Markdown audit justification.
+    Builds the explanation from the persisted prediction for this part: Module A's additive
+    decomposition (robust z per parameter vs its own lot), Module B's TreeSHAP contributions,
+    the calculated lot safety slope, the conformal prediction interval and the static-limit status.
     """
     stmt = (
         select(Component)
         .where(Component.id == component_id)
-        .options(
-            selectinload(Component.lot),
-            selectinload(Component.readings),
-            selectinload(Component.prediction),
-        )
+        .options(selectinload(Component.lot), selectinload(Component.readings), selectinload(Component.prediction))
     )
-    result = await db.execute(stmt)
-    component = result.scalar_one_or_none()
-
+    component = (await db.execute(stmt)).scalar_one_or_none()
     if not component:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Component with id '{component_id}' not found.",
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Component with id '{component_id}' not found.")
+    if component.prediction is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Component has no screening prediction yet.")
 
-    # Fetch lot readings
-    lot_readings_stmt = (
-        select(
-            BurnInReading.interval_hours,
-            BurnInReading.leakage_current_ua,
-            BurnInReading.iddq_ma,
-            BurnInReading.propagation_delay_ns,
-        )
-        .join(Component, Component.id == BurnInReading.component_id)
-        .where(Component.lot_id == component.lot_id)
-    )
-    lot_res = await db.execute(lot_readings_stmt)
-    lot_rows = lot_res.all()
-
-    lot_readings_dicts = [
-        {
-            "interval_hours": r.interval_hours,
-            "leakage_current_ua": r.leakage_current_ua,
-            "iddq_ma": r.iddq_ma,
-            "propagation_delay_ns": r.propagation_delay_ns,
-        }
-        for r in lot_rows
-    ]
-    lot_stats = explainer.compute_lot_statistics(lot_readings_dicts)
-
-    comp_readings_dicts = [
+    readings = [
         {
             "interval_hours": r.interval_hours,
             "leakage_current_ua": r.leakage_current_ua,
@@ -314,53 +295,6 @@ async def explain_component(
         }
         for r in component.readings
     ]
-
-    comp_data = {
-        "id": component.id,
-        "serial_number": component.serial_number,
-        "lot_number": component.lot.lot_number,
-        "wafer_id": component.lot.wafer_id,
-        "ground_truth_label": component.ground_truth_label.value if hasattr(component.ground_truth_label, "value") else str(component.ground_truth_label),
-        "ground_truth_flag": component.ground_truth_flag,
-        "is_datasheet_breached": component.is_datasheet_breached,
-    }
-
-    pred_data: Optional[Dict[str, Any]] = None
-    if component.prediction:
-        p = component.prediction
-        pred_data = {
-            "module_a_score": p.module_a_score,
-            "module_a_mahalanobis": p.module_a_mahalanobis,
-            "module_a_flag": p.module_a_flag,
-            "pred_leakage_168h": p.pred_leakage_168h,
-            "pred_iddq_168h": p.pred_iddq_168h,
-            "pred_delay_168h": p.pred_delay_168h,
-            "drift_slope_ua_per_hr": p.drift_slope_ua_per_hr,
-            "module_b_flag": p.module_b_flag,
-            "verdict": p.verdict.value if hasattr(p.verdict, "value") else str(p.verdict),
-            "verdict_reason": p.verdict_reason,
-        }
-
-    raw_explanation = explainer.explain_component(
-        component_data=comp_data,
-        component_readings=comp_readings_dicts,
-        lot_statistics=lot_stats,
-        prediction_data=pred_data,
-    )
-
-    return ExplanationResponse(
-        component_id=component.id,
-        serial_number=raw_explanation["serial_number"],
-        lot_number=raw_explanation["lot_number"],
-        wafer_id=raw_explanation["wafer_id"],
-        risk_category=raw_explanation["risk_category"],
-        primary_parameter=raw_explanation["primary_parameter"],
-        recommended_action=raw_explanation["recommended_action"],
-        verdict=raw_explanation["verdict"],
-        verdict_reason=raw_explanation["verdict_reason"],
-        executive_summary=raw_explanation["executive_summary"],
-        technical_justification=raw_explanation["technical_justification"],
-        parameter_metrics=raw_explanation["parameter_metrics"],
-        drift_metrics=DriftMetrics(**raw_explanation["drift_metrics"]),
-        lot_comparison=LotComparison(**raw_explanation["lot_comparison"]),
-    )
+    exp = build_explanation(prediction_dict(component.prediction), readings, component.serial_number,
+                            component.lot.lot_number)
+    return ExplanationResponse(component_id=component.id, cv_fold=component.prediction.cv_fold, **exp)

@@ -21,10 +21,9 @@ from backend.app.schemas.lot import (
     LotSummary,
     ParameterDistribution,
 )
-from backend.app.services.local_explainer import DeterministicExplainer
+from backend.app.services.lot_stats import compute_lot_statistics
 
 router = APIRouter(prefix="/lots", tags=["Lots"])
-explainer = DeterministicExplainer()
 
 
 @router.get("", response_model=List[LotSummary], summary="List all manufacturing lots with triage counts")
@@ -126,7 +125,7 @@ async def get_lot_distribution(
         for r in reading_rows
     ]
 
-    stats = explainer.compute_lot_statistics(readings_dicts)
+    stats = compute_lot_statistics(readings_dicts)
 
     param_meta = [
         ("leakage_current_ua", "Leakage Current (uA)", "uA", 50.0),

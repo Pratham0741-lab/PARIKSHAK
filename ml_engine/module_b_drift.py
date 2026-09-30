@@ -133,6 +133,33 @@ class DriftPredictor:
             for p in self.PARAMETERS
         }
 
+    def contributions(self, feats: pd.DataFrame, top_k: int = 8) -> List[Dict[str, Any]]:
+        """
+        Per-part TreeSHAP contributions (LightGBM pred_contrib=True) of each feature to each
+        parameter's model output, in the model's target space (see `target`). For "log_ratio"
+        the contributions add up to log(forecast_168h / reading_24h). Returns, per part, the
+        top_k features by |contribution|, the sum of the rest, and the bias (expected value).
+        """
+        X = feats[self.feature_columns_]
+        per_param = {p: self.models_[p].predict(X, pred_contrib=True) for p in self.PARAMETERS}
+        out: List[Dict[str, Any]] = []
+        names = list(self.feature_columns_)
+        for i in range(len(X)):
+            entry: Dict[str, Any] = {"target": self.target}
+            for p in self.PARAMETERS:
+                row = per_param[p][i]
+                contrib, bias = row[:-1], float(row[-1])
+                order = np.argsort(-np.abs(contrib), kind="stable")
+                top = [(names[j], float(contrib[j])) for j in order[:top_k]]
+                entry[p] = {
+                    "bias": bias,
+                    "top": [{"feature": f, "value": v} for f, v in top],
+                    "other": float(contrib[order[top_k:]].sum()),
+                    "total": float(contrib.sum() + bias),
+                }
+            out.append(entry)
+        return out
+
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
         """168h forecasts for every part with complete 0h/24h readings (other intervals are ignored)."""
         if not self.models_:

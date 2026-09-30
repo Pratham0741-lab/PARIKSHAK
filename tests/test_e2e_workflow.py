@@ -85,17 +85,12 @@ async def test_full_pipeline_e2e_workflow(async_client: AsyncClient):
 
     assert explain_data["component_id"] == borderline_id
     assert explain_data["serial_number"] == borderline_serial
-    assert explain_data["risk_category"] in [
-        "CRITICAL_RUNAWAY",
-        "LATENT_LOT_OUTLIER",
-        "SUBTLE_DEGRADATION",
-        "NOMINAL",
-    ]
-    assert len(explain_data["executive_summary"]) > 20
-    assert "# Engineering Screening Justification" in explain_data["technical_justification"]
-    assert "leakage_current_ua" in explain_data["parameter_metrics"]
-    assert "drift_metrics" in explain_data
-    assert "lot_comparison" in explain_data
+    # Explanation is built from this part's model outputs (see tests/test_explanations.py).
+    assert explain_data["verdict"] == "REVIEW"
+    assert borderline_serial in explain_data["summary"]
+    assert explain_data["module_a"]["top_contributor"] in explain_data["summary"]
+    assert explain_data["module_b"]["top_contributor"] in explain_data["summary"]
+    assert explain_data["cv_fold"] is not None
 
     # --------------------------------------------------------------------------
     # Step 5: Post an override action via POST /api/v1/reviews/{id}/action

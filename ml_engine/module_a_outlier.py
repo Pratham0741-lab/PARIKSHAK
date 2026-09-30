@@ -91,10 +91,15 @@ class LotOutlierDetector:
         return profiles
 
     def _lot_normalise(self, piv: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+        Z, Z0, _ = self._lot_normalise_with_stats(piv)
+        return Z, Z0
+
+    def _lot_normalise_with_stats(self, piv: pd.DataFrame):
         profiles = self.lot_profiles(piv)
         n = len(piv)
         Z = np.zeros((n, len(self.PARAMETERS)))
         Z0 = np.zeros((n, len(self.PARAMETERS)))
+        stats: Dict[str, Dict[str, np.ndarray]] = {}
         lot_ids = piv["lot_id"].to_numpy()
         for j, p in enumerate(self.PARAMETERS):
             med = np.array([profiles[l][p]["median"] for l in lot_ids])
@@ -103,7 +108,8 @@ class LotOutlierDetector:
             v24 = piv[f"{p}_24"].to_numpy()
             Z[:, j] = ((v0 + v24) / 2.0 - med) / mad
             Z0[:, j] = (v0 - med) / mad
-        return Z, Z0
+            stats[p] = {"value": (v0 + v24) / 2.0, "median": med, "mad": mad}
+        return Z, Z0, stats
 
     def fit(self, df: pd.DataFrame) -> "LotOutlierDetector":
         """Fits Ledoit-Wolf covariance and Isolation Forest on lot-normalised (MAD-unit) training data."""
@@ -131,7 +137,7 @@ class LotOutlierDetector:
             raise RuntimeError("LotOutlierDetector must be fitted prior to calling predict().")
 
         piv = self._extract_early_features(df)
-        Z, Z0 = self._lot_normalise(piv)
+        Z, Z0, lot_stats = self._lot_normalise_with_stats(piv)
 
         prec = self.covariance_estimator_.precision_
         mahalanobis_dists = np.sqrt(np.maximum(0.0, np.sum(Z @ prec * Z, axis=1)))
@@ -167,4 +173,9 @@ class LotOutlierDetector:
         )
         for j, p in enumerate(self.PARAMETERS):
             out[f"robust_z_{p}"] = np.round(Z[:, j], 3)
+            # Exact additive decomposition of the decision score: contribution_p = max(0, z_p).
+            out[f"a_contrib_{p}"] = np.round(np.maximum(0.0, Z[:, j]), 4)
+            out[f"a_value_{p}"] = np.round(lot_stats[p]["value"], 4)
+            out[f"a_lot_median_{p}"] = np.round(lot_stats[p]["median"], 4)
+            out[f"a_lot_mad_{p}"] = np.round(lot_stats[p]["mad"], 5)
         return out

@@ -207,6 +207,9 @@ class ScreeningModel:
         scored["threshold_b"] = tb
         out = self.verdict_engine.evaluate_dataframe(scored, ta, tb)
         out["screen_flag"] = out["verdict"].isin(["REVIEW", "REJECT"])
+        feats = self.module_b.features(early)
+        contrib = dict(zip(feats.index.astype(str), self.module_b.contributions(feats)))
+        out["b_contributions"] = out["component_id"].astype(str).map(contrib)
         return out
 
     # ------------------------------------------------------------------ persistence
@@ -252,7 +255,31 @@ def prediction_details(row) -> Dict[str, Any]:
         lo, hi = row.get(f"pi_lo_{SHORT[p]}_168h"), row.get(f"pi_hi_{SHORT[p]}_168h")
         if lo is not None and pd.notna(lo):
             interval[p] = {"lower": _num(lo), "upper": _num(hi), "width": _num(float(hi) - float(lo))}
+    module_a = {
+        "score": _num(row["module_a_score"]),
+        "threshold": _num(row["threshold_a"]),
+        "decision_statistic": "sum over parameters of max(0, robust z vs own lot)",
+        "per_parameter": {
+            p: {
+                "robust_z": _num(row[f"robust_z_{p}"]),
+                "contribution": _num(row[f"a_contrib_{p}"]),
+                "value_0_24h_mean": _num(row[f"a_value_{p}"]),
+                "lot_median": _num(row[f"a_lot_median_{p}"]),
+                "lot_mad": _num(row[f"a_lot_mad_{p}"]),
+            }
+            for p in PARAMETERS
+        },
+        "diagnostics": {
+            "mahalanobis": _num(row["module_a_mahalanobis"]),
+            "isolation_forest": _num(row["module_a_isolation"]),
+            "composite_v1": _num(row["module_a_composite"]),
+        },
+    }
+    b_contrib = row.get("b_contributions")
     return {
+        "module_a": module_a,
+        "module_b_contributions": b_contrib if isinstance(b_contrib, dict) else None,
+        "observed_static_breach": bool(row.get("observed_static_breach", False)),
         "prediction_interval": {"coverage_target": INTERVAL_COVERAGE, "method": "CQR", "per_parameter": interval},
         "safety_slope": {
             "rule": "safety_slope = lot median of predicted drift rate + k * max(1.4826*MAD, floor)",

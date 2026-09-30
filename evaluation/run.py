@@ -149,7 +149,7 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
 
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
-        cf.predictions.to_csv(out_dir / "oof_predictions.csv", index=False)
+        cf.predictions.drop(columns=["b_contributions"], errors="ignore").to_csv(out_dir / "oof_predictions.csv", index=False)
         truth.to_csv(out_dir / "truth.csv")
     return results
 
