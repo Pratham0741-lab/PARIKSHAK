@@ -5,7 +5,8 @@ Loads environment variables from .env using Pydantic Settings.
 
 from functools import lru_cache
 from typing import Optional
-from pydantic import Field, computed_field
+
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -57,6 +58,26 @@ class Settings(BaseSettings):
     DATASHEET_IDDQ_MAX_MA: float = 5.0
     DATASHEET_DELAY_MAX_NS: float = 8.0
 
+    # Browser origins allowed to call the API (comma-separated). Vite dev server defaults to :3000.
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:8080,http://127.0.0.1:8080"
+    )
+
+    # Trained screening model (thresholds, calibration) written by run_screening, read by CSV ingest.
+    # Relative paths are resolved against the project root.
+    MODEL_ARTIFACT_PATH: str = "artifacts/screening_model.joblib"
+
+    # Screening decision costs (see evaluation/cost.py). A missed defect (FN) is weighted
+    # FN_COST / FP_COST times a false alarm. RECALL_TARGET optionally constrains threshold choice.
+    FN_COST: float = 20.0
+    FP_COST: float = 1.0
+    RECALL_TARGET: Optional[float] = None
+    # "separate": Module A threshold and Module B safety-slope k are each cost-minimised on their own
+    #             (PS 26170 requires Module B to flag on its own safety-slope rule), decision = union.
+    # "joint":    the pair is optimised together for the union (may disable a module entirely).
+    THRESHOLD_STRATEGY: str = "separate"
+
     @computed_field
     @property
     def sync_database_url(self) -> str:
@@ -96,7 +117,7 @@ class Settings(BaseSettings):
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Cached accessor for application settings."""
     return Settings()

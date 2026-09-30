@@ -1,34 +1,55 @@
 /**
- * Global Zustand Store for PARIKSHAK Space Hardware Burn-In Screening.
+ * Global store. All data comes from the active ParikshakApi (backend by default).
+ * Every disposition change goes through the decision dialog and requires a comment.
  */
 
 import { create } from 'zustand';
-import { api } from '../data/api';
-import { AuditEvent, Decision, Lot, Part, PartStatus, Prediction } from '../data/types';
+import { createApi, initialMode, ParikshakApi, persistMode } from '../data/api';
+import { DEFAULT_OFFLINE_SETTINGS, OfflineDemoApi, OfflineDemoSettings } from '../data/offlineDemo';
+import {
+  ApiMode, AuditEvent, BenchmarkMetrics, CostCurve, Explanation, IngestResult, Lot, Part, PartStatus, Prediction,
+  SystemConfig,
+} from '../data/types';
 
-interface DevSettings {
-  seed: number;
-  lotSize: number;
-  defectRate: number;
-  staticLimitUa: number;
-  safetySlopeLimit: number;
+export const MIN_COMMENT_LENGTH = 5; // same rule as the backend (ReviewActionRequest.inspector_notes)
+const INSPECTOR_KEY = 'parikshak.inspector';
+
+function initialInspector(): string {
+  try {
+    return globalThis.localStorage?.getItem(INSPECTOR_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+interface DecisionDialogState {
+  open: boolean;
+  status: PartStatus;
+  partIds: string[]; // component ids
 }
 
 interface ParikshakStore {
+  mode: ApiMode;
+  api: ParikshakApi;
+  config: SystemConfig | null;
   lots: Lot[];
   activeLot: Lot | null;
   parts: Part[];
   predictions: Record<string, Prediction>;
+  explanations: Record<string, Explanation | null>;
   selectedPartId: string | null;
   selectedPartIds: Set<string>;
   auditEvents: AuditEvent[];
+  metrics: BenchmarkMetrics | null;
+  costCurves: { A: CostCurve | null; B: CostCurve | null };
   inspector: string;
-  devSettings: DevSettings;
+  offlineSettings: OfflineDemoSettings;
   isLoading: boolean;
+  error: string | null;
+  decisionDialog: DecisionDialogState;
   isShortcutModalOpen: boolean;
   isDevModalOpen: boolean;
 
-  // Actions
   fetchInitialData: () => Promise<void>;
   setActiveLot: (lotId: string) => Promise<void>;
   selectPart: (partId: string) => void;
@@ -36,248 +57,176 @@ interface ParikshakStore {
   togglePartSelection: (partId: string) => void;
   selectAllParts: (filteredIds?: string[]) => void;
   clearPartSelection: () => void;
-  applyDecision: (partId: string, newStatus: PartStatus, reason: string) => Promise<void>;
-  applyBulkDecisions: (newStatus: PartStatus, reason?: string) => Promise<void>;
-  updateDevSettings: (settings: Partial<DevSettings>) => void;
+  openDecisionDialog: (status: PartStatus, partIds?: string[]) => void;
+  closeDecisionDialog: () => void;
+  submitDecision: (status: PartStatus, comment: string, partIds: string[]) => Promise<void>;
+  loadExplanation: (partId: string) => Promise<void>;
+  loadMetrics: () => Promise<void>;
+  setMode: (mode: ApiMode) => Promise<void>;
+  updateOfflineSettings: (s: Partial<OfflineDemoSettings>) => Promise<void>;
+  setInspector: (name: string) => void;
+  ingestCsv: (csv: string, lotNumber?: string) => Promise<IngestResult>;
   setShortcutModalOpen: (open: boolean) => void;
   setDevModalOpen: (open: boolean) => void;
-  ingestCsvLot: (csvContent: string) => Promise<boolean>;
 }
 
-export const useStore = create<ParikshakStore>((set, get) => ({
-  lots: [],
-  activeLot: null,
-  parts: [],
-  predictions: {},
-  selectedPartId: null,
-  selectedPartIds: new Set(),
-  auditEvents: [],
-  inspector: 'A. Nair',
-  devSettings: {
-    seed: 42,
-    lotSize: 1248,
-    defectRate: 0.07,
-    staticLimitUa: 50.0,
-    safetySlopeLimit: 0.15,
-  },
-  isLoading: true,
-  isShortcutModalOpen: false,
-  isDevModalOpen: false,
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-  fetchInitialData: async () => {
-    set({ isLoading: true });
-    try {
-      const lots = await api.getLots();
-      if (lots.length > 0) {
-        const active = lots[0];
-        const parts = await api.getParts(active.id);
-        const predictions = await api.getPredictions(active.id);
-        const auditEvents = await api.getAuditLog(active.id);
+export const useStore = create<ParikshakStore>((set, get) => {
+  const mode = initialMode();
+  return {
+    mode,
+    api: createApi(mode),
+    config: null,
+    lots: [],
+    activeLot: null,
+    parts: [],
+    predictions: {},
+    explanations: {},
+    selectedPartId: null,
+    selectedPartIds: new Set(),
+    auditEvents: [],
+    metrics: null,
+    costCurves: { A: null, B: null },
+    inspector: initialInspector(),
+    offlineSettings: DEFAULT_OFFLINE_SETTINGS,
+    isLoading: true,
+    error: null,
+    decisionDialog: { open: false, status: 'Review', partIds: [] },
+    isShortcutModalOpen: false,
+    isDevModalOpen: false,
 
-        // Auto-select first flagged or first part
-        const flagged = parts.find(p => p.status === 'Reject' || p.status === 'Review');
-        const selectedId = flagged ? flagged.partId : (parts[0]?.partId || null);
-
-        set({
-          lots,
-          activeLot: active,
-          parts,
-          predictions,
-          selectedPartId: selectedId,
-          auditEvents,
-          isLoading: false,
-        });
-      } else {
+    fetchInitialData: async () => {
+      set({ isLoading: true, error: null });
+      const { api } = get();
+      try {
+        const [config, lots] = await Promise.all([api.getConfig(), api.getLots()]);
+        set({ config, lots });
+        const keep = get().activeLot && lots.find(l => l.id === get().activeLot!.id);
+        const active = keep || lots[0];
+        if (active) await get().setActiveLot(active.id);
         set({ isLoading: false });
+      } catch (e) {
+        set({ isLoading: false, error: `Could not load data from ${api.description}: ${errorText(e)}` });
       }
-    } catch (err) {
-      console.error('Failed to load initial data:', err);
-      set({ isLoading: false });
-    }
-  },
+    },
 
-  setActiveLot: async (lotId: string) => {
-    set({ isLoading: true });
-    try {
-      const lot = await api.getLot(lotId);
-      if (lot) {
-        const parts = await api.getParts(lot.id);
-        const predictions = await api.getPredictions(lot.id);
-        const auditEvents = await api.getAuditLog(lot.id);
-
-        const flagged = parts.find(p => p.status === 'Reject' || p.status === 'Review');
-        const selectedId = flagged ? flagged.partId : (parts[0]?.partId || null);
-
+    setActiveLot: async (lotId: string) => {
+      const { api, lots } = get();
+      const lot = lots.find(l => l.id === lotId) ?? null;
+      if (!lot) return;
+      try {
+        const [{ parts, predictions }, auditEvents] = await Promise.all([api.getParts(lotId), api.getAuditLog(lotId)]);
+        const current = get().selectedPartId;
+        const selected = parts.find(p => p.partId === current) ?? parts.find(p => p.isFlagged) ?? parts[0];
         set({
-          activeLot: lot,
-          parts,
-          predictions,
-          selectedPartId: selectedId,
-          selectedPartIds: new Set(),
-          auditEvents,
-          isLoading: false,
+          activeLot: lot, parts, predictions, auditEvents, explanations: {},
+          selectedPartId: selected ? selected.partId : null, selectedPartIds: new Set(), error: null,
         });
+      } catch (e) {
+        set({ error: `Could not load lot ${lot.lotNumber}: ${errorText(e)}` });
       }
-    } catch (err) {
-      console.error('Failed to switch active lot:', err);
-      set({ isLoading: false });
-    }
-  },
+    },
 
-  selectPart: (partId: string) => {
-    set({ selectedPartId: partId });
-  },
+    selectPart: (partId: string) => set({ selectedPartId: partId }),
 
-  navigatePart: (direction: 'next' | 'prev') => {
-    const { parts, selectedPartId } = get();
-    if (parts.length === 0) return;
+    navigatePart: (direction) => {
+      const { parts, selectedPartId } = get();
+      if (parts.length === 0) return;
+      const i = parts.findIndex(p => p.partId === selectedPartId);
+      const next = direction === 'next' ? (i + 1) % parts.length : (i - 1 + parts.length) % parts.length;
+      set({ selectedPartId: parts[next].partId });
+    },
 
-    const currentIndex = parts.findIndex(p => p.partId === selectedPartId);
-    let nextIndex = currentIndex;
+    togglePartSelection: (partId: string) => {
+      const s = new Set(get().selectedPartIds);
+      if (s.has(partId)) s.delete(partId);
+      else s.add(partId);
+      set({ selectedPartIds: s });
+    },
+    selectAllParts: (filteredIds) => set({ selectedPartIds: new Set(filteredIds ?? get().parts.map(p => p.partId)) }),
+    clearPartSelection: () => set({ selectedPartIds: new Set() }),
 
-    if (direction === 'next') {
-      nextIndex = currentIndex < parts.length - 1 ? currentIndex + 1 : 0;
-    } else {
-      nextIndex = currentIndex > 0 ? currentIndex - 1 : parts.length - 1;
-    }
+    openDecisionDialog: (status, partIds) => {
+      const { selectedPartIds, selectedPartId, parts } = get();
+      const serials = partIds ?? (selectedPartIds.size > 0 ? [...selectedPartIds] : selectedPartId ? [selectedPartId] : []);
+      const ids = serials.map(sn => parts.find(p => p.partId === sn)?.id).filter((x): x is string => !!x);
+      if (ids.length === 0) return;
+      set({ decisionDialog: { open: true, status, partIds: ids } });
+    },
+    closeDecisionDialog: () => set({ decisionDialog: { ...get().decisionDialog, open: false } }),
 
-    set({ selectedPartId: parts[nextIndex].partId });
-  },
-
-  togglePartSelection: (partId: string) => {
-    const { selectedPartIds } = get();
-    const updated = new Set(selectedPartIds);
-    if (updated.has(partId)) {
-      updated.delete(partId);
-    } else {
-      updated.add(partId);
-    }
-    set({ selectedPartIds: updated });
-  },
-
-  selectAllParts: (filteredIds?: string[]) => {
-    const { parts } = get();
-    const ids = filteredIds ? filteredIds : parts.map(p => p.partId);
-    set({ selectedPartIds: new Set(ids) });
-  },
-
-  clearPartSelection: () => {
-    set({ selectedPartIds: new Set() });
-  },
-
-  applyDecision: async (partId: string, newStatus: PartStatus, reason: string) => {
-    const { activeLot, inspector, parts } = get();
-    if (!activeLot) return;
-
-    const part = parts.find(p => p.partId === partId);
-    if (!part) return;
-
-    const prevStatus = part.status;
-    const now = new Date().toISOString();
-
-    const decision: Decision = {
-      partId,
-      lotId: activeLot.id,
-      previousStatus: prevStatus,
-      newStatus,
-      reason,
-      inspector,
-      updatedAt: now,
-    };
-
-    await api.submitDecision(decision);
-
-    // Update in-memory parts
-    const updatedParts = parts.map(p => {
-      if (p.partId === partId) {
-        return {
-          ...p,
-          status: newStatus,
-          reason,
-          inspector,
-          updatedAt: now,
-          isFlagged: newStatus !== 'Accept',
-        };
+    submitDecision: async (status, comment, partIds) => {
+      const { api, activeLot, inspector } = get();
+      if (!activeLot) return;
+      if (comment.trim().length < MIN_COMMENT_LENGTH) throw new Error(`A comment of at least ${MIN_COMMENT_LENGTH} characters is required.`);
+      if (inspector.trim().length < 2) throw new Error('Set your inspector ID (top bar) before recording a decision.');
+      for (const id of partIds) {
+        await api.submitDecision({ partId: id, lotId: activeLot.id, newStatus: status, comment: comment.trim(), inspector: inspector.trim() });
       }
-      return p;
-    });
+      set({ decisionDialog: { ...get().decisionDialog, open: false }, selectedPartIds: new Set() });
+      await get().setActiveLot(activeLot.id); // re-read statuses and the audit log from the source of truth
+    },
 
-    const updatedAudit = await api.getAuditLog(activeLot.id);
-    set({ parts: updatedParts, auditEvents: updatedAudit });
-  },
-
-  applyBulkDecisions: async (newStatus: PartStatus, reason?: string) => {
-    const { activeLot, inspector, parts, selectedPartIds } = get();
-    if (!activeLot || selectedPartIds.size === 0) return;
-
-    const now = new Date().toISOString();
-    const defaultReason = reason || `Bulk ${newStatus.toLowerCase()} by inspector`;
-
-    const decisions: Decision[] = Array.from(selectedPartIds).map(partId => {
-      const part = parts.find(p => p.partId === partId);
-      return {
-        partId,
-        lotId: activeLot.id,
-        previousStatus: part ? part.status : 'Review',
-        newStatus,
-        reason: defaultReason,
-        inspector,
-        updatedAt: now,
-      };
-    });
-
-    await api.submitBulkDecisions(decisions);
-
-    const updatedParts = parts.map(p => {
-      if (selectedPartIds.has(p.partId)) {
-        return {
-          ...p,
-          status: newStatus,
-          reason: defaultReason,
-          inspector,
-          updatedAt: now,
-          isFlagged: newStatus !== 'Accept',
-        };
+    loadExplanation: async (partId: string) => {
+      const part = get().parts.find(p => p.partId === partId);
+      if (!part || partId in get().explanations) return;
+      try {
+        const exp = await get().api.getExplanation(part.id);
+        set({ explanations: { ...get().explanations, [partId]: exp } });
+      } catch (e) {
+        set({ error: `Could not load explanation for ${partId}: ${errorText(e)}` });
       }
-      return p;
-    });
+    },
 
-    const updatedAudit = await api.getAuditLog(activeLot.id);
-    set({ parts: updatedParts, selectedPartIds: new Set(), auditEvents: updatedAudit });
-  },
+    loadMetrics: async () => {
+      const { api } = get();
+      try {
+        const [metrics, A, B] = await Promise.all([api.getMetrics(), api.getCostCurve('A'), api.getCostCurve('B')]);
+        set({ metrics, costCurves: { A, B } });
+      } catch (e) {
+        set({ error: `Could not load metrics: ${errorText(e)}` });
+      }
+    },
 
-  updateDevSettings: (newSettings: Partial<DevSettings>) => {
-    const current = get().devSettings;
-    const merged = { ...current, ...newSettings };
-    set({ devSettings: merged });
+    setMode: async (mode: ApiMode) => {
+      persistMode(mode);
+      const api = mode === 'offline' ? new OfflineDemoApi(get().offlineSettings) : createApi('http');
+      set({ mode, api, activeLot: null, lots: [], parts: [], predictions: {}, explanations: {}, metrics: null, costCurves: { A: null, B: null } });
+      await get().fetchInitialData();
+    },
 
-    // Re-initialize MockApi with new seed/size
-    api.initialize(merged.seed, merged.lotSize);
-    get().fetchInitialData();
-  },
-
-  setShortcutModalOpen: (open: boolean) => {
-    set({ isShortcutModalOpen: open });
-  },
-
-  setDevModalOpen: (open: boolean) => {
-    set({ isDevModalOpen: open });
-  },
-
-  ingestCsvLot: async (csvContent: string): Promise<boolean> => {
-    set({ isLoading: true });
-    try {
-      const res = await api.ingestCsv(csvContent);
-      if (res.requiredColumnsFound && res.parsedParts.length > 0) {
+    updateOfflineSettings: async (s) => {
+      const merged = { ...get().offlineSettings, ...s };
+      set({ offlineSettings: merged });
+      const { api } = get();
+      if (api instanceof OfflineDemoApi) {
+        api.regenerate(merged); // every setting (seed, size, defect rate, static limit) is applied
+        set({ activeLot: null });
         await get().fetchInitialData();
-        return true;
       }
-      set({ isLoading: false });
-      return false;
-    } catch (err) {
-      console.error('Ingest failed:', err);
-      set({ isLoading: false });
-      return false;
-    }
-  },
-}));
+    },
+
+    setInspector: (name: string) => {
+      try {
+        globalThis.localStorage?.setItem(INSPECTOR_KEY, name);
+      } catch {
+        /* ignore */
+      }
+      set({ inspector: name });
+    },
+
+    ingestCsv: async (csv: string, lotNumber?: string) => {
+      const res = await get().api.ingestCsv(csv, lotNumber, get().inspector || 'QA Inspector');
+      if (res.lotId) {
+        const lots = await get().api.getLots();
+        set({ lots });
+        await get().setActiveLot(res.lotId);
+      }
+      return res;
+    },
+
+    setShortcutModalOpen: (open) => set({ isShortcutModalOpen: open }),
+    setDevModalOpen: (open) => set({ isDevModalOpen: open }),
+  };
+});

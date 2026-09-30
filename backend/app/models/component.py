@@ -5,7 +5,9 @@ Component ORM Model for individual semiconductor units.
 import enum
 import uuid
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import Boolean, Enum as SAEnum, ForeignKey, Index, String, UniqueConstraint
+
+from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,8 +15,8 @@ from backend.app.models.base import Base
 
 if TYPE_CHECKING:
     from backend.app.models.lot import Lot
-    from backend.app.models.reading import BurnInReading
     from backend.app.models.prediction import ModelPrediction
+    from backend.app.models.reading import BurnInReading
     from backend.app.models.review import InspectorReview
 
 
@@ -54,17 +56,15 @@ class Component(Base):
         index=True,
         doc="Part serial number (e.g. SN-00101)",
     )
-    ground_truth_label: Mapped[GroundTruthLabel] = mapped_column(
+    ground_truth_label: Mapped[Optional[GroundTruthLabel]] = mapped_column(
         SAEnum(GroundTruthLabel, name="ground_truth_label_enum", native_enum=True),
-        nullable=False,
-        default=GroundTruthLabel.NORMAL,
+        nullable=True,
         index=True,
         doc="Ground-truth classification of physical defect or normality",
     )
-    ground_truth_flag: Mapped[bool] = mapped_column(
+    ground_truth_flag: Mapped[Optional[bool]] = mapped_column(
         Boolean,
-        nullable=False,
-        default=False,
+        nullable=True,
         index=True,
         doc="Boolean anomaly indicator (True if defective/outlier, False if normal)",
     )
@@ -74,6 +74,14 @@ class Component(Base):
         default=False,
         index=True,
         doc="Flag indicating if any parameter violated absolute datasheet specification limits",
+    )
+
+    insufficient_data: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        doc="True if a 0h or 24h reading was missing/invalid at ingest (no Module A/B score)",
     )
 
     # Relationships

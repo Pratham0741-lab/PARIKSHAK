@@ -1,210 +1,163 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import * as d3 from 'd3';
 import { useStore } from '../store/useStore';
-import { findSimilarParts } from '../lib/analytics/explainability';
 import { StatusMarker } from '../components/common/StatusMarker';
+import { findSimilarParts } from '../lib/analytics/explainability';
+import { PARAMS, PARAM_LABEL, PARAM_UNIT, Param } from '../data/types';
+
+const f = (v: number | null | undefined, nd = 3) => (v == null ? '–' : v.toFixed(nd));
 
 export const ComponentDetailScreen: React.FC = () => {
-  const { parts, predictions, selectedPartId, activeLot } = useStore();
-  const [activeTab, setActiveTab] = useState<'Overview' | 'Explainability' | 'Similar Parts'>('Overview');
+  const { parts, predictions, selectedPartId, explanations, loadExplanation, config, openDecisionDialog, mode } = useStore();
+  const part = parts.find(p => p.partId === selectedPartId) ?? parts[0] ?? null;
+  const pred = part ? predictions[part.partId] : undefined;
+  const exp = part ? explanations[part.partId] : undefined;
 
-  const selectedPart = useMemo(() => {
-    return parts.find(p => p.partId === selectedPartId) || parts[0] || null;
-  }, [parts, selectedPartId]);
+  useEffect(() => {
+    if (part) loadExplanation(part.partId);
+  }, [part, loadExplanation]);
 
-  const selectedPrediction = useMemo(() => {
-    if (!selectedPart) return null;
-    return predictions[selectedPart.partId] || null;
-  }, [predictions, selectedPart]);
+  const similar = useMemo(() => (part ? findSimilarParts(part, parts, 5) : []), [part, parts]);
+  if (!part) return <div className="p-6 text-muted font-mono text-xs">No parts in this lot.</div>;
 
-  // Dynamic similar parts calculation
-  const similarParts = useMemo(() => {
-    if (!selectedPart) return [];
-    return findSimilarParts(selectedPart, parts, 5);
-  }, [selectedPart, parts]);
-
-  const staticLimit = activeLot?.staticLimitUa ?? 50.0;
+  const bContrib = exp?.moduleB.contributions ?? [];
+  const maxB = Math.max(1e-9, ...bContrib.map(c => Math.abs(c.value)));
+  const aContrib = exp?.moduleA.contributions ?? [];
+  const maxA = Math.max(1e-9, ...aContrib.map(c => Math.abs(c.robustZ ?? 0)));
 
   return (
-    <div className="w-full h-full flex flex-col bg-workspace overflow-hidden">
-      {/* 1. Header Strip */}
-      <div className="border-b border-hairline px-4 py-2 bg-panel flex items-center justify-between text-xs font-mono">
-        <div className="flex items-center gap-6">
-          <span className="font-bold text-sm text-main">
-            Component: {selectedPart?.partId}
-          </span>
-          <div className="flex space-x-1">
-            {(['Overview', 'Explainability', 'Similar Parts'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-3 py-1 font-sans text-xs border ${
-                  activeTab === tab
-                    ? 'bg-toprail text-white border-toprail font-medium'
-                    : 'bg-workspace text-muted border-hairline hover:text-main'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
+    <div className="w-full h-full flex flex-col bg-workspace overflow-hidden font-mono text-xs">
+      <div className="border-b border-hairline px-4 py-2 bg-panel flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <span className="font-bold text-sm text-main">Component {part.partId}</span>
+          <StatusMarker status={part.status} />
+          <span className="text-muted font-sans">{part.statusSource === 'inspector' ? `set by inspector ${part.inspector}` : `model verdict ${pred?.verdict ?? '–'}`}</span>
         </div>
-
-        <div className="text-muted text-xs">
-          Lot: <strong className="text-main">{activeLot?.lotNumber}</strong>
+        <div className="flex gap-2">
+          {(['Accept', 'Review', 'Reject'] as const).map(s => (
+            <button key={s} onClick={() => openDecisionDialog(s, [part.partId])} className="bg-workspace border border-hairline px-2 py-0.5 hover:border-toprail">{s}…</button>
+          ))}
         </div>
       </div>
 
-      {/* 2. Main Two-Row Layout */}
-      <div className="flex-1 min-h-0 p-4 flex flex-col gap-4 overflow-y-auto">
-        {/* UPPER ROW: Mini Trajectory (Left) + Feature Contributions (Right) */}
-        <div className="h-[210px] grid grid-cols-12 gap-4 shrink-0">
-          {/* Mini Trajectory */}
-          <div className="col-span-5 border border-hairline p-3 bg-workspace flex flex-col">
-            <span className="font-mono text-xs font-bold text-main mb-2">
-              Iddq Trajectory ({selectedPart?.partId})
-            </span>
-            <div className="flex-1 min-h-0 relative">
-              {selectedPart && (() => {
-                const intervals = [0, 24, 96, 168];
-                const pts = intervals.map(t => ({ t, v: selectedPart.readings[t] || 0 }));
-                const w = 260;
-                const h = 130;
-                const maxV = Math.max(staticLimit * 1.1, d3.max(pts, d => d.v) || 50);
+      <div className="flex-1 min-h-0 p-4 grid grid-cols-12 gap-4 overflow-y-auto">
+        <div className="col-span-5 space-y-4">
+          <Panel title="Readings (0h/24h used by the models; 96h/168h shown for traceability)">
+            <table className="w-full">
+              <thead className="text-muted text-[11px]"><tr><th className="text-left">Param</th>{[0, 24, 96, 168].map(t => <th key={t} className="text-right">{t}h</th>)}</tr></thead>
+              <tbody>
+                {PARAMS.map(p => (
+                  <tr key={p}>
+                    <td className="text-muted">{PARAM_LABEL[p]} ({PARAM_UNIT[p]})</td>
+                    {[0, 24, 96, 168].map(t => {
+                      const r = part.allReadings.find(x => x.intervalHours === t);
+                      return <td key={t} className="text-right tabular-nums">{r ? r.values[p].toFixed(3) : '–'}{r?.imputed.includes(p) ? '*' : ''}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {part.allReadings.some(r => r.imputed.length) && <div className="text-[10px] text-review mt-1 font-sans">* imputed at ingest (lot median; display only). Part marked insufficient data.</div>}
+            <MiniTrajectory readings={part.readings} forecast={pred?.moduleB?.perParam.leakage_current_ua?.forecast168h ?? null}
+              lower={pred?.moduleB?.perParam.leakage_current_ua?.intervalLower ?? null} upper={pred?.moduleB?.perParam.leakage_current_ua?.intervalUpper ?? null}
+              limit={config?.datasheetLimits.leakage_current_ua ?? null} />
+          </Panel>
 
-                const xSc = d3.scaleLinear().domain([0, 168]).range([35, w - 15]);
-                const ySc = d3.scaleLinear().domain([0, maxV]).range([h - 20, 10]);
-
-                const lineGen = d3
-                  .line<{ t: number; v: number }>()
-                  .x(d => xSc(d.t))
-                  .y(d => ySc(d.v));
-
-                return (
-                  <svg className="w-full h-full overflow-visible">
-                    {/* Gridlines */}
-                    {intervals.map(t => (
-                      <g key={`t-${t}`}>
-                        <line x1={xSc(t)} x2={xSc(t)} y1={10} y2={h - 20} stroke="#E5E8EB" strokeWidth={1} />
-                        <text x={xSc(t)} y={h - 5} textAnchor="middle" className="text-[9px] font-mono fill-muted">
-                          {t}h
-                        </text>
-                      </g>
-                    ))}
-
-                    {/* Static Limit Line */}
-                    <line x1={35} x2={w - 15} y1={ySc(staticLimit)} y2={ySc(staticLimit)} stroke="#D63A2F" strokeDasharray="3 2" />
-                    <text x={38} y={ySc(staticLimit) - 4} className="text-[8px] font-mono fill-reject">
-                      Limit {staticLimit} µA
-                    </text>
-
-                    {/* Path */}
-                    <path d={lineGen(pts) || ''} fill="none" stroke="#D63A2F" strokeWidth={2} />
-
-                    {/* Points */}
-                    {pts.map((pt, i) => (
-                      <circle key={`pt-${i}`} cx={xSc(pt.t)} cy={ySc(pt.v)} r={3.5} fill="#D63A2F" stroke="#FFFFFF" strokeWidth={1} />
-                    ))}
-                  </svg>
-                );
-              })()}
-            </div>
-          </div>
-
-          {/* Feature Contributions (SHAP / Tree Attribution) */}
-          <div className="col-span-7 border border-hairline p-3 bg-workspace flex flex-col font-mono text-xs">
-            <span className="font-sans font-bold text-xs text-main mb-2">
-              Feature Contributions (SHAP / Tree Attribution)
-            </span>
-            <div className="flex-1 min-h-0 space-y-2 py-1">
-              {selectedPrediction?.featureContributions.map(fc => {
-                const isPositive = fc.value >= 0;
-                const absVal = Math.min(3.0, Math.abs(fc.value));
-                const barWidthPct = (absVal / 3.0) * 100;
-
-                return (
-                  <div key={fc.feature} className="grid grid-cols-12 items-center text-xs">
-                    <span className="col-span-3 text-muted truncate font-sans text-xs">{fc.feature}</span>
-                    <div className="col-span-7 flex items-center h-4 bg-panel relative border border-hairline">
-                      <div className="w-1/2 h-full border-r border-hairline" />
-                      {isPositive ? (
-                        <div
-                          className="h-full bg-reject"
-                          style={{
-                            width: `${barWidthPct / 2}%`,
-                            position: 'absolute',
-                            left: '50%',
-                          }}
-                        />
-                      ) : (
-                        <div
-                          className="h-full bg-accept"
-                          style={{
-                            width: `${barWidthPct / 2}%`,
-                            position: 'absolute',
-                            right: '50%',
-                          }}
-                        />
-                      )}
-                    </div>
-                    <span
-                      className={`col-span-2 text-right font-bold tabular-nums ${
-                        isPositive ? 'text-reject' : 'text-accept'
-                      }`}
-                    >
-                      {isPositive ? `+${fc.value.toFixed(2)}` : fc.value.toFixed(2)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <Panel title="Module A decomposition: robust z vs own lot (score = sum of positive z)">
+            {exp ? (
+              <>
+                {aContrib.map(c => (
+                  <Bar key={c.parameter} label={PARAM_LABEL[c.parameter as Param]} value={c.robustZ ?? 0} max={maxA}
+                    right={`z ${f(c.robustZ, 2)} · ${f(c.value, 3)} vs lot ${f(c.lotMedian, 3)}`} />
+                ))}
+                <div className="text-muted mt-1">score {f(exp.moduleA.score, 3)} vs learned threshold {exp.moduleA.threshold == null ? 'off' : f(exp.moduleA.threshold, 3)} → <strong className={exp.moduleA.flag ? 'text-reject' : 'text-accept'}>{exp.moduleA.flag ? 'flag' : 'no flag'}</strong></div>
+              </>
+            ) : <Unavailable part={part} exp={exp} mode={mode} />}
+          </Panel>
         </div>
 
-        {/* LOWER ROW: QA Justification (Left) + Similar Parts (Right) */}
-        <div className="flex-1 min-h-[200px] grid grid-cols-12 gap-4">
-          {/* QA Justification (Monospace Lab Note) */}
-          <div className="col-span-6 border border-hairline p-3 bg-workspace flex flex-col">
-            <span className="font-mono text-xs font-bold text-main mb-2">
-              QA Justification (auto-generated)
-            </span>
-            <div className="flex-1 bg-panel border border-hairline p-3 font-mono text-[11px] leading-relaxed text-main select-text">
-              {selectedPrediction?.notes}
-            </div>
-          </div>
+        <div className="col-span-7 space-y-4">
+          <Panel title={`Module B feature contributions to the ${exp ? PARAM_LABEL[exp.moduleB.driver] : ''} forecast (TreeSHAP, LightGBM pred_contrib)`}>
+            {exp ? (
+              <>
+                {bContrib.map(c => (
+                  <Bar key={c.feature} label={c.label} value={c.value} max={maxB} wide
+                    right={c.effectPctOnForecast != null ? `${c.effectPctOnForecast >= 0 ? '+' : ''}${c.effectPctOnForecast.toFixed(1)}%` : c.value.toFixed(4)} />
+                ))}
+                <div className="text-[10px] text-muted font-sans mt-1">
+                  Signed contributions in the model's target space ({exp.moduleB.targetSpace}); % = multiplicative effect on the 168h forecast. Largest: <strong>{exp.moduleB.topContributor}</strong>.
+                </div>
+              </>
+            ) : <Unavailable part={part} exp={exp} mode={mode} />}
+          </Panel>
 
-          {/* Similar Past Parts Table */}
-          <div className="col-span-6 border border-hairline p-3 bg-workspace flex flex-col font-mono text-xs">
-            <span className="font-sans font-bold text-xs text-main mb-2">
-              Similar Past Parts (Nearest Neighbors)
-            </span>
-            <div className="flex-1 border border-hairline overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="h-[26px] bg-panel border-b border-hairline text-muted font-bold text-[11px]">
-                    <th className="px-2">Part ID</th>
-                    <th className="px-2">Lot ID</th>
-                    <th className="px-2 text-right">Final Iddq</th>
-                    <th className="px-2">Outcome</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {similarParts.map((sp, idx) => (
-                    <tr key={`sim-${idx}`} className="h-[28px] border-b border-hairline/40 hover:bg-panel/40">
-                      <td className="px-2 font-semibold text-main">{sp.partId}</td>
-                      <td className="px-2 text-muted">{sp.lotId}</td>
-                      <td className="px-2 text-right tabular-nums">{sp.finalIddq.toFixed(1)} µA</td>
-                      <td className="px-2">
-                        <StatusMarker status={sp.outcome === 'Passed' ? 'Accept' : 'Reject'} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <Panel title="QA justification (generated from this part's model outputs)">
+            <div className="bg-panel border border-hairline p-3 text-[11px] leading-relaxed text-main select-text whitespace-pre-wrap">
+              {exp ? exp.summary : pred ? pred.verdictReason : part.reason}
             </div>
-          </div>
+            {exp?.cvFold != null && <div className="text-[10px] text-muted mt-1 font-sans">Out-of-fold prediction (lot fold {exp.cvFold}).</div>}
+          </Panel>
+
+          <Panel title="Parts with the most similar 0h/24h leakage (current dispositions)">
+            <table className="w-full">
+              <thead className="text-muted text-[11px]"><tr><th className="text-left">Part</th><th className="text-right">0h µA</th><th className="text-right">24h µA</th><th className="text-right">Distance</th><th className="pl-3 text-left">Status</th></tr></thead>
+              <tbody>
+                {similar.map(s => (
+                  <tr key={s.partId}><td>{s.partId}</td><td className="text-right">{f(s.leakage0h, 2)}</td><td className="text-right">{f(s.leakage24h, 2)}</td><td className="text-right">{s.distance}</td><td className="pl-3"><StatusMarker status={s.status} /></td></tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
         </div>
       </div>
     </div>
+  );
+};
+
+const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div className="border border-hairline p-3 bg-workspace">
+    <div className="font-sans font-bold text-xs text-main mb-2">{title}</div>
+    {children}
+  </div>
+);
+
+const Bar: React.FC<{ label: string; value: number; max: number; right: string; wide?: boolean }> = ({ label, value, max, right, wide }) => {
+  const half = 50 * Math.min(1, Math.abs(value) / max);
+  return (
+    <div className="grid grid-cols-12 items-center gap-2 mb-1">
+      <span className={`${wide ? 'col-span-5' : 'col-span-3'} truncate text-muted font-sans`} title={label}>{label}</span>
+      <div className={`${wide ? 'col-span-4' : 'col-span-5'} relative h-3 bg-panel border border-hairline`}>
+        <div className="absolute top-0 bottom-0 left-1/2 border-l border-hairline" />
+        <div className={`absolute top-0 bottom-0 ${value >= 0 ? 'bg-reject' : 'bg-accept'}`}
+          style={value >= 0 ? { left: '50%', width: `${half}%` } : { right: '50%', width: `${half}%` }} />
+      </div>
+      <span className={`${wide ? 'col-span-3' : 'col-span-4'} text-right tabular-nums`}>{right}</span>
+    </div>
+  );
+};
+
+const Unavailable: React.FC<{ part: { insufficientData: boolean }; exp: unknown; mode: string }> = ({ part, exp, mode }) => (
+  <div className="text-muted italic">
+    {exp === undefined ? 'Loading…' : mode === 'offline' ? 'Not available in offline demo mode (requires the backend model).'
+      : part.insufficientData ? 'No model score: insufficient data at ingest.' : 'No explanation available.'}
+  </div>
+);
+
+const MiniTrajectory: React.FC<{ readings: Record<number, number | null>; forecast: number | null; lower: number | null; upper: number | null; limit: number | null }> = ({ readings, forecast, lower, upper, limit }) => {
+  const w = 360, h = 120;
+  const pts = [0, 24, 96, 168].map(t => ({ t, v: readings[t] })).filter((d): d is { t: number; v: number } => d.v != null);
+  const maxV = Math.max(limit ?? 0, upper ?? 0, ...pts.map(p => p.v)) * 1.1 || 1;
+  const x = d3.scaleLinear().domain([0, 168]).range([30, w - 10]);
+  const y = d3.scaleLinear().domain([0, maxV]).range([h - 18, 6]);
+  const line = d3.line<{ t: number; v: number }>().x(d => x(d.t)).y(d => y(d.v));
+  const v24 = readings[24];
+  return (
+    <svg width={w} height={h} className="mt-2">
+      {limit != null && <line x1={30} x2={w - 10} y1={y(limit)} y2={y(limit)} stroke="#D63A2F" strokeDasharray="3 2" />}
+      {v24 != null && lower != null && upper != null && <path d={`M ${x(24)} ${y(v24)} L ${x(168)} ${y(upper)} L ${x(168)} ${y(lower)} Z`} fill="#D63A2F" fillOpacity={0.1} />}
+      {v24 != null && forecast != null && <path d={line([{ t: 24, v: v24 }, { t: 168, v: forecast }]) || ''} stroke="#D63A2F" strokeDasharray="4 3" fill="none" />}
+      <path d={line(pts) || ''} stroke="#1C2328" strokeWidth={2} fill="none" />
+      {[0, 24, 96, 168].map(t => <text key={t} x={x(t)} y={h - 4} textAnchor="middle" className="text-[9px] fill-muted">{t}h</text>)}
+    </svg>
   );
 };

@@ -4,6 +4,7 @@ Built with SQLAlchemy 2.0.
 """
 
 from typing import AsyncGenerator, Generator
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -12,9 +13,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from backend.app.core.config import settings
-from backend.app.models.base import Base
 
 # Synchronous Engine and Session Factory (psycopg2)
 # Used by Alembic, seed scripts, and synchronous batch processing tasks
@@ -35,7 +36,6 @@ SessionLocal = sessionmaker(
     class_=Session,
 )
 
-from sqlalchemy.pool import NullPool
 
 # Asynchronous Engine and Session Factory (asyncpg)
 # Uses NullPool to prevent event-loop connection sharing conflicts in async runtimes & test suites

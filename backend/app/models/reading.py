@@ -4,7 +4,8 @@ Burn-In Screening Reading ORM Model for parametric measurements across test inte
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
+
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -15,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.models.base import Base
@@ -63,6 +64,11 @@ class BurnInReading(Base):
         Float,
         nullable=False,
         doc="Critical path propagation delay measured in nanoseconds (ns)",
+    )
+    imputed_fields: Mapped[Optional[List[str]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Parameters whose value was missing/invalid at ingest and imputed with the lot median",
     )
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

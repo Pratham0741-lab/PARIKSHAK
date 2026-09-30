@@ -1,0 +1,362 @@
+{
+  "alternative_strategy": {
+    "detection": {
+      "f2": 0.5013,
+      "fn": 21,
+      "fp": 289,
+      "precision": 0.206,
+      "recall": 0.7812,
+      "weighted_cost": 709.0
+    },
+    "module_b_disabled_folds": 5,
+    "strategy": "joint"
+  },
+  "config": {
+    "components_per_lot": 100,
+    "fn_cost": 20.0,
+    "fp_cost": 1.0,
+    "n_splits": 5,
+    "num_lots": 10,
+    "recall_target": null,
+    "seed": 42,
+    "threshold_strategy": "separate"
+  },
+  "held_out": {
+    "detection": {
+      "cost_config": {
+        "fn_cost": 20.0,
+        "fp_cost": 1.0,
+        "recall_target": null
+      },
+      "cost_per_1000_parts": 718.0,
+      "f1": 0.3198,
+      "f2": 0.4954,
+      "false_negative_rate": 0.2188,
+      "false_positive_rate": 0.3296,
+      "fn": 21,
+      "fp": 298,
+      "n": 1000,
+      "precision": 0.2011,
+      "recall": 0.7812,
+      "tn": 606,
+      "tp": 75,
+      "weighted_cost": 718.0
+    },
+    "n_excluded_no_truth": 0,
+    "n_predictions": 1000,
+    "n_scored": 1000,
+    "per_class": {
+      "LATE_DRIFT": {
+        "flagged_rate": 0.375,
+        "n": 24
+      },
+      "LEVEL_OUTLIER": {
+        "flagged_rate": 0.875,
+        "n": 24
+      },
+      "NORMAL": {
+        "flagged_rate": 0.3296,
+        "n": 904
+      },
+      "STEEP_DRIFT": {
+        "flagged_rate": 1.0,
+        "n": 24
+      },
+      "SUBTLE_MULTIVARIATE": {
+        "flagged_rate": 0.875,
+        "n": 24
+      }
+    },
+    "regression": {
+      "iddq_ma": {
+        "interval": {
+          "empirical_coverage": 0.915,
+          "mean_width": 0.4109,
+          "n": 1000,
+          "width_max": 0.9611,
+          "width_min": 0.2368
+        },
+        "linear_baseline": {
+          "mae": 0.6081,
+          "n": 1000,
+          "rmse": 0.7719
+        },
+        "model": {
+          "mae": 0.0918,
+          "n": 1000,
+          "rmse": 0.126
+        }
+      },
+      "leakage_current_ua": {
+        "interval": {
+          "empirical_coverage": 0.89,
+          "mean_width": 7.4773,
+          "n": 1000,
+          "width_max": 51.6962,
+          "width_min": 1.4549
+        },
+        "linear_baseline": {
+          "mae": 5.9695,
+          "n": 1000,
+          "rmse": 8.3719
+        },
+        "model": {
+          "mae": 1.9299,
+          "n": 1000,
+          "rmse": 5.1124
+        }
+      },
+      "propagation_delay_ns": {
+        "interval": {
+          "empirical_coverage": 0.909,
+          "mean_width": 0.884,
+          "n": 1000,
+          "width_max": 1.2453,
+          "width_min": 0.6305
+        },
+        "linear_baseline": {
+          "mae": 1.6873,
+          "n": 1000,
+          "rmse": 2.1136
+        },
+        "model": {
+          "mae": 0.2059,
+          "n": 1000,
+          "rmse": 0.2612
+        }
+      }
+    },
+    "trivial_policies": {
+      "flag_all_parts": {
+        "recall": 1.0,
+        "weighted_cost": 904.0
+      },
+      "flag_no_parts": {
+        "recall": 0.0,
+        "weighted_cost": 1920.0
+      }
+    }
+  },
+  "module_b_selection": {
+    "linear_baseline": {
+      "iddq_ma": {
+        "mae": 0.6081,
+        "rmse": 0.7719
+      },
+      "leakage_current_ua": {
+        "mae": 5.9695,
+        "rmse": 8.3719
+      },
+      "propagation_delay_ns": {
+        "mae": 1.6873,
+        "rmse": 2.1136
+      }
+    },
+    "n_candidates": 15,
+    "nested_estimate": {
+      "iddq_ma": {
+        "mae": 0.0927,
+        "rmse": 0.1254
+      },
+      "leakage_current_ua": {
+        "mae": 2.0404,
+        "rmse": 5.0821
+      },
+      "propagation_delay_ns": {
+        "mae": 0.2112,
+        "rmse": 0.2666
+      }
+    },
+    "original_v1_raw_g0": {
+      "iddq_ma": {
+        "mae": 0.1011,
+        "rmse": 0.1351
+      },
+      "leakage_current_ua": {
+        "mae": 3.3578,
+        "rmse": 6.2653
+      },
+      "propagation_delay_ns": {
+        "mae": 0.2255,
+        "rmse": 0.2828
+      }
+    },
+    "per_fold_choice": [
+      "v2-log_ratio-g0",
+      "v2-log_ratio-g0",
+      "v2-log_ratio-g0",
+      "v2-log_ratio-g1",
+      "v2-log_ratio-g0"
+    ],
+    "production_choice": "v2-log_ratio-g2"
+  },
+  "split": {
+    "folds": [
+      {
+        "fold": 0,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8,
+        "threshold_a": 1.6621,
+        "threshold_b": 2.5803,
+        "validation_recall": 0.869
+      },
+      {
+        "fold": 1,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8,
+        "threshold_a": 2.0489,
+        "threshold_b": 8.2425,
+        "validation_recall": 0.8611
+      },
+      {
+        "fold": 2,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8,
+        "threshold_a": 2.1015,
+        "threshold_b": 2.5465,
+        "validation_recall": 0.8571
+      },
+      {
+        "fold": 3,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8,
+        "threshold_a": 2.0345,
+        "threshold_b": 6.762,
+        "validation_recall": 0.8472
+      },
+      {
+        "fold": 4,
+        "n_test_lots": 2,
+        "n_test_parts": 200,
+        "n_train_lots": 8,
+        "threshold_a": 2.9303,
+        "threshold_b": 7.5169,
+        "validation_recall": 0.7639
+      }
+    ],
+    "method": "GroupKFold over lots (lot-level cross-fitting); 96h/168h and labels hidden at prediction time",
+    "n_defective": 96,
+    "n_lots": 10,
+    "n_parts": 1000
+  },
+  "train_optimistic": {
+    "detection": {
+      "cost_config": {
+        "fn_cost": 20.0,
+        "fp_cost": 1.0,
+        "recall_target": null
+      },
+      "cost_per_1000_parts": 431.0,
+      "f1": 0.3739,
+      "f2": 0.5825,
+      "false_negative_rate": 0.0729,
+      "false_positive_rate": 0.3219,
+      "fn": 7,
+      "fp": 291,
+      "n": 1000,
+      "precision": 0.2342,
+      "recall": 0.9271,
+      "tn": 613,
+      "tp": 89,
+      "weighted_cost": 431.0
+    },
+    "n_excluded_no_truth": 0,
+    "n_predictions": 1000,
+    "n_scored": 1000,
+    "per_class": {
+      "LATE_DRIFT": {
+        "flagged_rate": 0.875,
+        "n": 24
+      },
+      "LEVEL_OUTLIER": {
+        "flagged_rate": 0.9583,
+        "n": 24
+      },
+      "NORMAL": {
+        "flagged_rate": 0.3219,
+        "n": 904
+      },
+      "STEEP_DRIFT": {
+        "flagged_rate": 1.0,
+        "n": 24
+      },
+      "SUBTLE_MULTIVARIATE": {
+        "flagged_rate": 0.875,
+        "n": 24
+      }
+    },
+    "regression": {
+      "iddq_ma": {
+        "interval": {
+          "empirical_coverage": 0.986,
+          "mean_width": 0.4007,
+          "n": 1000,
+          "width_max": 0.95,
+          "width_min": 0.2364
+        },
+        "linear_baseline": {
+          "mae": 0.6081,
+          "n": 1000,
+          "rmse": 0.7719
+        },
+        "model": {
+          "mae": 0.0667,
+          "n": 1000,
+          "rmse": 0.0914
+        }
+      },
+      "leakage_current_ua": {
+        "interval": {
+          "empirical_coverage": 0.983,
+          "mean_width": 6.6915,
+          "n": 1000,
+          "width_max": 53.9748,
+          "width_min": 1.2463
+        },
+        "linear_baseline": {
+          "mae": 5.9695,
+          "n": 1000,
+          "rmse": 8.3719
+        },
+        "model": {
+          "mae": 1.4276,
+          "n": 1000,
+          "rmse": 4.059
+        }
+      },
+      "propagation_delay_ns": {
+        "interval": {
+          "empirical_coverage": 0.987,
+          "mean_width": 0.8861,
+          "n": 1000,
+          "width_max": 1.2107,
+          "width_min": 0.6606
+        },
+        "linear_baseline": {
+          "mae": 1.6873,
+          "n": 1000,
+          "rmse": 2.1136
+        },
+        "model": {
+          "mae": 0.1516,
+          "n": 1000,
+          "rmse": 0.1924
+        }
+      }
+    },
+    "trivial_policies": {
+      "flag_all_parts": {
+        "recall": 1.0,
+        "weighted_cost": 904.0
+      },
+      "flag_no_parts": {
+        "recall": 0.0,
+        "weighted_cost": 1920.0
+      }
+    }
+  }
+}

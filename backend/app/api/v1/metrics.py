@@ -1,146 +1,182 @@
 """
-Metrics API endpoint: benchmark performance reporting including Recall, FNR, and Drift MAE.
+Metrics API: held-out screening performance with FN-weighted cost, F2, and threshold-vs-cost curves.
+
+All numbers are computed on request from persisted OUT-OF-FOLD predictions joined with ground
+truth, using the same code as the offline evaluation (evaluation/cost.py, evaluation/thresholds.py).
+Parts without ground truth (e.g. ingested production lots) are excluded and counted.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List, Literal, Optional
+
 import numpy as np
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.app.core.config import settings
 from backend.app.core.database import get_async_db
 from backend.app.models.component import Component
-from backend.app.models.prediction import ModelPrediction, ScreeningVerdict
-from backend.app.models.reading import BurnInReading
-from backend.app.schemas.metrics import BenchmarkMetricsResponse
+from backend.app.models.run import ScreeningRun
+from backend.app.schemas.metrics import BenchmarkMetricsResponse, CostCurveResponse
+from evaluation.cost import CostConfig, cost_report
+from evaluation.thresholds import cost_curve
+from ml_engine.verdict_engine import ScreeningVerdictEngine
 
 router = APIRouter(prefix="/metrics", tags=["Metrics"])
 
-
-@router.get(
-    "/benchmark",
-    response_model=BenchmarkMetricsResponse,
-    summary="Get system-wide screening recall, FNR, and Module B drift accuracy",
+PROTOCOL = (
+    "Out-of-fold: GroupKFold over lots; each part is predicted by a model trained on other lots "
+    "from its 0h/24h readings only. Ground truth is joined only at scoring time."
 )
+
+
+def _cost(fn_cost: Optional[float], fp_cost: Optional[float]) -> CostConfig:
+    return CostConfig.from_settings(fn_cost=fn_cost, fp_cost=fp_cost)
+
+
+async def _labelled_rows(db: AsyncSession) -> Dict[str, Any]:
+    comps = (
+        await db.execute(select(Component).options(selectinload(Component.prediction), selectinload(Component.readings)))
+    ).scalars().all()
+    rows = []
+    no_truth = 0
+    for c in comps:
+        if c.prediction is None:
+            continue
+        if c.ground_truth_flag is None:
+            no_truth += 1
+            continue
+        rows.append(c)
+    return {"rows": rows, "total": len(comps), "no_truth": no_truth}
+
+
+async def _latest_run(db: AsyncSession) -> Optional[ScreeningRun]:
+    return (await db.execute(select(ScreeningRun).order_by(ScreeningRun.created_at.desc()).limit(1))).scalars().first()
+
+
+def _verdict(c: Component) -> str:
+    v = c.prediction.verdict
+    return v.value if hasattr(v, "value") else str(v)
+
+
+@router.get("/benchmark", response_model=BenchmarkMetricsResponse, summary="Held-out recall, precision, F2, FN-weighted cost, drift MAE")
 async def get_benchmark_metrics(
+    fn_cost: Optional[float] = Query(None, ge=0, description=f"Cost of a missed defect (default {settings.FN_COST:g})"),
+    fp_cost: Optional[float] = Query(None, ge=0, description=f"Cost of a false alarm (default {settings.FP_COST:g})"),
     db: AsyncSession = Depends(get_async_db),
 ) -> BenchmarkMetricsResponse:
-    """
-    Computes system-level validation benchmarks against ground-truth defect labels:
-    - Anomaly Detection Recall, Precision, False Negative Rate (FNR), and F1 Score.
-    - Component Triage Distribution (PASS / REVIEW / REJECT).
-    - Module B LightGBM 168h Forecast MAE vs Simple Linear Extrapolation Baseline.
-    """
-    stmt = (
-        select(Component)
-        .options(
-            selectinload(Component.prediction),
-            selectinload(Component.readings),
-        )
-    )
-    result = await db.execute(stmt)
-    components = result.scalars().all()
+    cfg = _cost(fn_cost, fp_cost)
+    data = await _labelled_rows(db)
+    comps = data["rows"]
 
-    total = len(components)
-    if total == 0:
-        return BenchmarkMetricsResponse(
-            total_components=0,
-            defective_count=0,
-            benign_count=0,
-            flagged_count=0,
-            true_positives=0,
-            false_positives=0,
-            false_negatives=0,
-            true_negatives=0,
-            recall=0.0,
-            precision=0.0,
-            false_negative_rate=0.0,
-            f1_score=0.0,
-            triage_distribution={"PASS": 0, "REVIEW": 0, "REJECT": 0},
-            module_b_mae_leakage=0.0,
-            linear_baseline_mae_leakage=0.0,
-            mae_reduction_pct=0.0,
-        )
+    y_true = np.array([bool(c.ground_truth_flag) for c in comps], dtype=bool)
+    verdicts = [_verdict(c) for c in comps]
+    y_pred = np.array([v in ("REVIEW", "REJECT") for v in verdicts], dtype=bool)
+    rep = cost_report(y_true, y_pred, cfg)
 
-    tp = 0
-    fp = 0
-    fn = 0
-    tn = 0
-    defective_count = 0
-    benign_count = 0
-    flagged_count = 0
+    triage = {"PASS": 0, "REVIEW": 0, "REJECT": 0}
+    for v in verdicts:
+        triage[v] = triage.get(v, 0) + 1
 
-    triage_counts: Dict[str, int] = {"PASS": 0, "REVIEW": 0, "REJECT": 0}
-
-    lgbm_errors: List[float] = []
-    linear_errors: List[float] = []
-
-    for comp in components:
-        is_defective = bool(comp.ground_truth_flag)
-        if is_defective:
-            defective_count += 1
-        else:
-            benign_count += 1
-
-        pred = comp.prediction
-        verdict = pred.verdict.value if pred and hasattr(pred.verdict, "value") else (str(pred.verdict) if pred else "PASS")
-        triage_counts[verdict] = triage_counts.get(verdict, 0) + 1
-
-        # Screening alert = REVIEW or REJECT (or module flags)
-        is_flagged = verdict in ["REVIEW", "REJECT"]
-        if is_flagged:
-            flagged_count += 1
-
-        if is_defective and is_flagged:
-            tp += 1
-        elif not is_defective and is_flagged:
-            fp += 1
-        elif is_defective and not is_flagged:
-            fn += 1
-        else:
-            tn += 1
-
-        # Compare Module B vs Linear Baseline on actual 168h leakage
-        if pred and comp.readings:
-            r_map = {r.interval_hours: r.leakage_current_ua for r in comp.readings}
-            if 0 in r_map and 24 in r_map and 168 in r_map:
-                actual_168 = r_map[168]
-                v0 = r_map[0]
-                v24 = r_map[24]
-                # Linear baseline projection: v0 + 7 * (v24 - v0)
-                linear_proj = v0 + 7.0 * (v24 - v0)
-                lgbm_proj = pred.pred_leakage_168h
-
-                lgbm_errors.append(abs(lgbm_proj - actual_168))
-                linear_errors.append(abs(linear_proj - actual_168))
-
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    fnr = fn / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
-
-    mae_lgbm = float(np.mean(lgbm_errors)) if lgbm_errors else 0.0
-    mae_linear = float(np.mean(linear_errors)) if linear_errors else 0.0
-    reduction_pct = ((mae_linear - mae_lgbm) / mae_linear * 100.0) if mae_linear > 0 else 0.0
+    lgbm_err: List[float] = []
+    lin_err: List[float] = []
+    for c in comps:
+        r = {x.interval_hours: x.leakage_current_ua for x in c.readings}
+        if {0, 24, 168} <= r.keys() and c.prediction.pred_leakage_168h is not None:
+            lgbm_err.append(abs(c.prediction.pred_leakage_168h - r[168]))
+            lin_err.append(abs(r[0] + 7.0 * (r[24] - r[0]) - r[168]))
+    mae = float(np.mean(lgbm_err)) if lgbm_err else 0.0
+    mae_lin = float(np.mean(lin_err)) if lin_err else 0.0
+    oof = sum(1 for c in comps if c.prediction.cv_fold is not None)
+    run = await _latest_run(db)
 
     return BenchmarkMetricsResponse(
-        total_components=total,
-        defective_count=defective_count,
-        benign_count=benign_count,
-        flagged_count=flagged_count,
-        true_positives=tp,
-        false_positives=fp,
-        false_negatives=fn,
-        true_negatives=tn,
-        recall=round(recall, 4),
-        precision=round(precision, 4),
-        false_negative_rate=round(fnr, 4),
-        f1_score=round(f1, 4),
-        triage_distribution=triage_counts,
-        module_b_mae_leakage=round(mae_lgbm, 4),
-        linear_baseline_mae_leakage=round(mae_linear, 4),
-        mae_reduction_pct=round(reduction_pct, 2),
+        total_components=len(comps),
+        excluded_without_ground_truth=data["no_truth"],
+        defective_count=int(y_true.sum()),
+        benign_count=int((~y_true).sum()),
+        flagged_count=int(y_pred.sum()),
+        true_positives=rep["tp"],
+        false_positives=rep["fp"],
+        false_negatives=rep["fn"],
+        true_negatives=rep["tn"],
+        recall=round(rep["recall"], 4),
+        precision=round(rep["precision"], 4),
+        false_negative_rate=round(rep["false_negative_rate"], 4),
+        f1_score=round(rep["f1"], 4),
+        f2_score=round(rep["f2"], 4),
+        fn_cost=cfg.fn_cost,
+        fp_cost=cfg.fp_cost,
+        weighted_cost=round(rep["weighted_cost"], 4),
+        cost_per_1000_parts=round(rep["cost_per_1000_parts"], 4),
+        triage_distribution=triage,
+        module_b_mae_leakage=round(mae, 4),
+        linear_baseline_mae_leakage=round(mae_lin, 4),
+        mae_reduction_pct=round((mae_lin - mae) / mae_lin * 100.0, 2) if mae_lin > 0 else 0.0,
+        evaluation_protocol=PROTOCOL,
+        out_of_fold_predictions=oof,
+        in_sample_predictions=len(comps) - oof,
+        final_thresholds=(run.final_thresholds if run else None),
+        run_id=(run.id if run else None),
+    )
+
+
+def _forced(c: Component, limits: Dict[str, float]) -> bool:
+    """Specification rules: observed (0h/24h) or forecast (168h) datasheet breach."""
+    p = c.prediction
+    if p.pred_leakage_168h is not None and (
+        p.pred_leakage_168h >= limits["leakage_current_ua"]
+        or p.pred_iddq_168h >= limits["iddq_ma"]
+        or p.pred_delay_168h >= limits["propagation_delay_ns"]
+    ):
+        return True
+    return any(
+        r.interval_hours in (0, 24)
+        and (r.leakage_current_ua > limits["leakage_current_ua"] or r.iddq_ma > limits["iddq_ma"]
+             or r.propagation_delay_ns > limits["propagation_delay_ns"])
+        for r in c.readings
+    )
+
+
+@router.get("/cost-curve", response_model=CostCurveResponse, summary="Weighted cost / FN / FP vs. one module's threshold")
+async def get_cost_curve(
+    module: Literal["A", "B"] = Query("A", description="Which module's threshold to sweep"),
+    fn_cost: Optional[float] = Query(None, ge=0),
+    fp_cost: Optional[float] = Query(None, ge=0),
+    points: int = Query(40, ge=5, le=200),
+    db: AsyncSession = Depends(get_async_db),
+) -> CostCurveResponse:
+    """
+    Sweeps one module's threshold over the persisted out-of-fold scores while the other module is
+    held at its chosen (final-model) threshold. Specification rules (observed or forecast datasheet
+    breach) always apply. This is a diagnostic of the cost landscape; the operational thresholds
+    were chosen on inner-CV validation data, not on this curve.
+    """
+    cfg = _cost(fn_cost, fp_cost)
+    comps = [c for c in (await _labelled_rows(db))["rows"] if c.prediction.module_b_score is not None]
+    run = await _latest_run(db)
+    thr = (run.final_thresholds if run else {}) or {}
+    ta = float("inf") if thr.get("threshold_a") is None else float(thr["threshold_a"])
+    tb = float("inf") if thr.get("threshold_b") is None else float(thr["threshold_b"])
+
+    limits = ScreeningVerdictEngine.datasheet_limits()
+    a = np.array([c.prediction.module_a_score for c in comps], dtype=float)
+    b = np.array([c.prediction.module_b_score for c in comps], dtype=float)
+    y = np.array([bool(c.ground_truth_flag) for c in comps], dtype=bool)
+    forced = np.array([_forced(c, limits) for c in comps], dtype=bool)
+
+    sweep, fixed, t_fixed, chosen = (a, b, tb, ta) if module == "A" else (b, a, ta, tb)
+    curve = cost_curve(sweep, fixed, t_fixed, y, cfg, forced, n_points=points)
+    fin = lambda x: None if x == float("inf") else x  # noqa: E731
+    return CostCurveResponse(
+        module=module,
+        fn_cost=cfg.fn_cost,
+        fp_cost=cfg.fp_cost,
+        chosen_threshold=fin(chosen),
+        other_threshold=fin(t_fixed),
+        n_parts=len(comps),
+        points=curve,
     )

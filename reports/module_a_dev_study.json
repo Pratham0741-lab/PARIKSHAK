@@ -1,0 +1,61 @@
+{
+  "criterion": "mean ROC-AUC (defective vs normal) over development datasets",
+  "dev_seeds": [
+    101,
+    202,
+    303
+  ],
+  "evaluation_seed_excluded": 42,
+  "mean_auc": {
+    "composite_v1": {
+      "auc_LATE_DRIFT": 0.4914,
+      "auc_LEVEL_OUTLIER": 0.9337,
+      "auc_STEEP_DRIFT": 0.9415,
+      "auc_SUBTLE_MULTIVARIATE": 0.7599,
+      "auc_all": 0.7817
+    },
+    "isolation_forest": {
+      "auc_LATE_DRIFT": 0.5327,
+      "auc_LEVEL_OUTLIER": 0.916,
+      "auc_STEEP_DRIFT": 0.9422,
+      "auc_SUBTLE_MULTIVARIATE": 0.6675,
+      "auc_all": 0.7646
+    },
+    "mahalanobis": {
+      "auc_LATE_DRIFT": 0.5267,
+      "auc_LEVEL_OUTLIER": 0.9388,
+      "auc_STEEP_DRIFT": 0.9636,
+      "auc_SUBTLE_MULTIVARIATE": 0.6593,
+      "auc_all": 0.7721
+    },
+    "max_abs_z": {
+      "auc_LATE_DRIFT": 0.5195,
+      "auc_LEVEL_OUTLIER": 0.9483,
+      "auc_STEEP_DRIFT": 0.9649,
+      "auc_SUBTLE_MULTIVARIATE": 0.6119,
+      "auc_all": 0.7612
+    },
+    "max_positive_z": {
+      "auc_LATE_DRIFT": 0.4868,
+      "auc_LEVEL_OUTLIER": 0.9716,
+      "auc_STEEP_DRIFT": 0.9818,
+      "auc_SUBTLE_MULTIVARIATE": 0.7879,
+      "auc_all": 0.807
+    },
+    "sum_positive_z": {
+      "auc_LATE_DRIFT": 0.4694,
+      "auc_LEVEL_OUTLIER": 0.9569,
+      "auc_STEEP_DRIFT": 0.9791,
+      "auc_SUBTLE_MULTIVARIATE": 0.9132,
+      "auc_all": 0.8297
+    },
+    "sum_z_squared": {
+      "auc_LATE_DRIFT": 0.5279,
+      "auc_LEVEL_OUTLIER": 0.9471,
+      "auc_STEEP_DRIFT": 0.9697,
+      "auc_SUBTLE_MULTIVARIATE": 0.6731,
+      "auc_all": 0.7795
+    }
+  },
+  "selected": "sum_positive_z"
+}

@@ -6,20 +6,23 @@ Stores Module A outlier metrics, Module B 168h drift predictions, and final Verd
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Enum as SAEnum,
     Float,
     ForeignKey,
     Index,
-    String,
+    Integer,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import (
+    Enum as SAEnum,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.models.base import Base
@@ -58,14 +61,14 @@ class ModelPrediction(Base):
     )
 
     # Module A: Spatial Lot-Adaptive Outlier Metrics
-    module_a_score: Mapped[float] = mapped_column(
+    module_a_score: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Composite normalized lot outlier score [0.0, 1.0]",
     )
-    module_a_mahalanobis: Mapped[float] = mapped_column(
+    module_a_mahalanobis: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Robust covariance-shrunk Mahalanobis distance in parametric feature space",
     )
     module_a_flag: Mapped[bool] = mapped_column(
@@ -77,24 +80,24 @@ class ModelPrediction(Base):
     )
 
     # Module B: Early 168h Drift Forecasts (from 0h/24h readings)
-    pred_leakage_168h: Mapped[float] = mapped_column(
+    pred_leakage_168h: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="LightGBM predicted leakage current at 168h in microamperes (uA)",
     )
-    pred_iddq_168h: Mapped[float] = mapped_column(
+    pred_iddq_168h: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="LightGBM predicted IDDQ supply current at 168h in milliamperes (mA)",
     )
-    pred_delay_168h: Mapped[float] = mapped_column(
+    pred_delay_168h: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="LightGBM predicted propagation delay at 168h in nanoseconds (ns)",
     )
-    drift_slope_ua_per_hr: Mapped[float] = mapped_column(
+    drift_slope_ua_per_hr: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Forecasted leakage drift rate in microamperes per hour (uA/hr)",
     )
     module_b_flag: Mapped[bool] = mapped_column(
@@ -103,6 +106,32 @@ class ModelPrediction(Base):
         default=False,
         index=True,
         doc="True if forecasted to violate safety ceiling or excessive drift rate",
+    )
+
+    module_b_score: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, doc="Module B decision score compared against threshold_b"
+    )
+    threshold_a: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, doc="Module A threshold used for this decision (NULL = module disabled)"
+    )
+    threshold_b: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, doc="Module B threshold used for this decision (NULL = module disabled)"
+    )
+    run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("screening_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    safety_slope_ua_per_hr: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True,
+        doc="Calculated lot safety slope for leakage (lot median predicted rate + k * lot spread)",
+    )
+    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True,
+        doc="Per-part derivations: drift rates vs safety slopes, prediction intervals, feature contributions",
+    )
+    cv_fold: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Lot-level cross-validation fold whose model produced this out-of-fold prediction",
     )
 
     # Unified Verdict Layer

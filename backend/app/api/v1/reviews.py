@@ -5,15 +5,17 @@ Reviews API endpoints: QA human inspector review submission and audit log.
 from __future__ import annotations
 
 import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.database import get_async_db
+from backend.app.models.audit import AuditEvent
 from backend.app.models.component import Component
 from backend.app.models.prediction import ScreeningVerdict
-from backend.app.models.review import InspectorReview, ReviewDisposition
+from backend.app.models.review import InspectorReview
 from backend.app.schemas.review import ReviewActionRequest, ReviewActionResponse
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
@@ -65,6 +67,12 @@ async def submit_review_action(
     )
 
     db.add(review_record)
+    ov = original_verdict.value if hasattr(original_verdict, "value") else str(original_verdict)
+    db.add(AuditEvent(
+        category="DECISION", actor=payload.inspector_id, action="Decision recorded",
+        details=f"{component.serial_number}: model verdict {ov} -> {payload.disposition.value}: {payload.inspector_notes}",
+        lot_id=component.lot_id, component_id=component.id,
+    ))
     await db.commit()
     await db.refresh(review_record)
 

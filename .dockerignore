@@ -1,0 +1,10 @@
+.git
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+frontend
+artifacts
+reports/*.csv
+.env
+.claude

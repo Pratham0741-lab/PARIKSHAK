@@ -1,0 +1,13 @@
+{
+  "feature_set": "v2",
+  "target": "log_ratio",
+  "lgb_params": {
+    "n_estimators": 200,
+    "learning_rate": 0.05,
+    "num_leaves": 7,
+    "min_child_samples": 30,
+    "reg_lambda": 5.0
+  },
+  "selected_by": "python -m evaluation.module_b_study (lot-grouped CV over all lots; see reports/module_b_study.json)",
+  "candidate_id": "v2-log_ratio-g2"
+}

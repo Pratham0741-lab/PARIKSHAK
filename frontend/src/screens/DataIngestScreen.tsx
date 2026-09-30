@@ -1,355 +1,148 @@
-import React, { useState, useRef } from 'react';
-import { parseAndValidateCsv } from '../lib/analytics/csvValidator';
-import { generateDemoRawCsv } from '../data/generator';
+import React, { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { IngestValidationResult } from '../data/types';
+import { previewCsv, INGEST_HEADER } from '../lib/csvPreview';
+import { IngestResult, IngestSummary } from '../data/types';
 import { UploadCloud, CheckCircle2, AlertTriangle, XCircle, FileText } from 'lucide-react';
 
+/**
+ * CSV ingest. Validation and imputation rules are the backend's (single implementation):
+ * missing cells are imputed with the lot median and flagged (never 0), duplicates and bad rows are
+ * rejected, and the stored lot is screened through Modules A and B.
+ */
 export const DataIngestScreen: React.FC = () => {
-  const { ingestCsvLot, activeLot } = useStore();
+  const navigate = useNavigate();
+  const { api, ingestCsv, mode } = useStore();
+  const [csv, setCsv] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [lotNumber, setLotNumber] = useState('');
+  const [validation, setValidation] = useState<IngestSummary | null>(null);
+  const [result, setResult] = useState<IngestResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState<'Upload' | 'Column Mapping' | 'Validation' | 'Preview'>('Upload');
-  const [csvContent, setCsvContent] = useState<string>('');
-  const [fileName, setFileName] = useState<string>('');
-  const [fileSize, setFileSize] = useState<string>('');
-  const [validationResult, setValidationResult] = useState<IngestValidationResult | null>(null);
-  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
-  const [selectedSubTab, setSelectedSubTab] = useState<'Raw CSV' | 'Parsed Data' | 'Issues'>('Raw CSV');
-  const [isSuccess, setIsSuccess] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleProcessCsv = (content: string, name: string = 'burnin_telemetry.csv', sizeStr: string = '12.4 KB') => {
-    setCsvContent(content);
+  const load = async (text: string, name: string) => {
+    setCsv(text);
     setFileName(name);
-    setFileSize(sizeStr);
-
-    const res = parseAndValidateCsv(content, activeLot?.id || 'lot-temp', columnMapping);
-    setValidationResult(res);
-    setIsSuccess(false);
-  };
-
-  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      const reader = new FileReader();
-      reader.onload = evt => {
-        const text = evt.target?.result as string;
-        handleProcessCsv(text, file.name, `${(file.size / 1024).toFixed(1)} KB`);
-      };
-      reader.readAsText(file);
+    setResult(null);
+    setError(null);
+    setValidation(null);
+    try {
+      setValidation(await api.validateCsv(text));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = evt => {
-        const text = evt.target?.result as string;
-        handleProcessCsv(text, file.name, `${(file.size / 1024).toFixed(1)} KB`);
-      };
-      reader.readAsText(file);
+  const readFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = ev => load(String(ev.target?.result ?? ''), file.name);
+    reader.readAsText(file);
+  };
+
+  const loadExample = async () => {
+    const res = await fetch('/example_ingest.csv');
+    await load(await res.text(), 'example_ingest.csv');
+  };
+
+  const commit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await ingestCsv(csv, lotNumber || undefined);
+      setResult(r);
+      setValidation(r.validation);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleLoadDemoCsv = () => {
-    const demo = generateDemoRawCsv(101);
-    handleProcessCsv(demo, 'demo_lot_sample.csv', '8.6 KB');
-  };
-
-  const handleCommitIngest = async () => {
-    if (!csvContent) return;
-    const ok = await ingestCsvLot(csvContent);
-    if (ok) {
-      setIsSuccess(true);
-    }
-  };
+  const rows = csv ? previewCsv(csv) : [];
+  const v = validation;
+  const check = (ok: boolean, text: string) => (
+    <div className={`flex items-center gap-2 ${ok ? 'text-accept' : 'text-reject'}`}>{ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}<span>{text}</span></div>
+  );
 
   return (
-    <div className="w-full h-full flex flex-col bg-workspace overflow-hidden">
-      {/* 1. Header with Top Sub-Tabs */}
-      <div className="border-b border-hairline px-4 py-2 bg-panel flex items-center justify-between text-xs font-mono">
-        <div className="flex items-center gap-6">
-          <span className="font-bold text-sm text-main">
-            Data Ingest: {activeLot?.lotNumber}
-          </span>
-          <div className="flex space-x-1">
-            {(['Upload', 'Column Mapping', 'Validation', 'Preview'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-3 py-1 font-sans text-xs border ${
-                  activeTab === tab
-                    ? 'bg-toprail text-white border-toprail font-medium'
-                    : 'bg-workspace text-muted border-hairline hover:text-main'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <button
-          onClick={handleLoadDemoCsv}
-          className="bg-panel border border-hairline px-2.5 py-1 text-xs text-muted hover:text-main font-mono flex items-center gap-1"
-        >
-          <FileText size={12} /> Load Demo CSV
+    <div className="w-full h-full flex flex-col bg-workspace overflow-hidden font-mono text-xs">
+      <div className="border-b border-hairline px-4 py-2 bg-panel flex items-center justify-between">
+        <span className="font-bold text-sm text-main">Data ingest: new lot from CSV</span>
+        <button onClick={loadExample} disabled={mode === 'offline'} className="bg-workspace border border-hairline px-2.5 py-1 text-muted hover:text-main flex items-center gap-1 disabled:opacity-40">
+          <FileText size={12} /> Load example CSV (seeded generator)
         </button>
       </div>
+      {mode === 'offline' && <div className="px-4 py-2 text-review">Ingest needs the backend (validation, storage and screening happen there). Switch data source to Backend.</div>}
 
-      {/* 2. Upload and Validation Summary Strip */}
-      <div className="h-[210px] border-b border-hairline p-4 flex gap-6 bg-workspace shrink-0">
-        {/* Drag and Drop Zone */}
-        <div
-          onDragOver={e => e.preventDefault()}
-          onDrop={handleFileDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className="flex-1 border-2 border-dashed border-hairline hover:border-toprail cursor-pointer flex flex-col items-center justify-center p-4 bg-panel/40 transition-colors"
-        >
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileInputChange}
-            accept=".csv,text/csv"
-            className="hidden"
-          />
+      <div className="border-b border-hairline p-4 flex gap-6 shrink-0">
+        <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); }}
+          onClick={() => fileRef.current?.click()}
+          className="flex-1 border-2 border-dashed border-hairline hover:border-toprail cursor-pointer flex flex-col items-center justify-center p-4 bg-panel/40 min-h-[170px]">
+          <input type="file" ref={fileRef} accept=".csv,text/csv" className="hidden" onChange={e => e.target.files?.[0] && readFile(e.target.files[0])} />
           <UploadCloud size={28} className="text-muted mb-2" />
-          <span className="font-mono text-xs font-semibold text-main mb-1">
-            Drop CSV file here
-          </span>
-          <span className="font-sans text-[11px] text-muted">
-            or click to browse local filesystem
-          </span>
-          {fileName && (
-            <div className="mt-3 text-[11px] font-mono text-muted bg-workspace px-2 py-0.5 border border-hairline">
-              File: <strong className="text-main">{fileName}</strong> ({fileSize},{' '}
-              {validationResult?.totalRowsParsed || 0} rows)
-            </div>
-          )}
+          <span className="font-semibold text-main">Drop CSV here or click to browse</span>
+          <span className="text-[10px] text-muted mt-2 text-center break-all">Required: part_id and leakage/iddq/delay at 0h and 24h. Optional: 96h, 168h.<br />{INGEST_HEADER.join(',')}</span>
+          {fileName && <span className="mt-2 text-muted">File: <strong className="text-main">{fileName}</strong></span>}
         </div>
 
-        {/* Validation Results Checklist */}
-        <div className="w-[360px] border border-hairline p-3 bg-panel flex flex-col justify-between font-mono text-xs">
+        <div className="w-[380px] border border-hairline p-3 bg-panel flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-2 border-b border-hairline mb-2">
-              <span className="font-bold text-main font-sans">Validation Results</span>
-              {validationResult ? (
-                <span
-                  className={`text-[11px] font-semibold ${
-                    validationResult.issues.length > 0 ? 'text-reject' : 'text-accept'
-                  }`}
-                >
-                  {validationResult.issues.length} issues found
-                </span>
-              ) : (
-                <span className="text-[11px] text-muted">Awaiting file</span>
-              )}
+              <span className="font-bold font-sans">Backend validation</span>
+              {v && <span className={v.ok ? 'text-accept' : 'text-reject'}>{v.issues.length} issues</span>}
             </div>
-
-            {validationResult ? (
-              <div className="space-y-1.5 text-[11px]">
-                <div className="flex items-center gap-2 text-accept">
-                  <CheckCircle2 size={13} />
-                  <span>{validationResult.totalRowsParsed.toLocaleString()} rows parsed</span>
-                </div>
-                {validationResult.missingReadingsCount > 0 ? (
-                  <div className="flex items-center gap-2 text-reject">
-                    <XCircle size={13} />
-                    <span>{validationResult.missingReadingsCount} missing readings</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-accept">
-                    <CheckCircle2 size={13} />
-                    <span>All interval readings present</span>
-                  </div>
-                )}
-                {validationResult.duplicatePartIds > 0 ? (
-                  <div className="flex items-center gap-2 text-reject">
-                    <XCircle size={13} />
-                    <span>{validationResult.duplicatePartIds} duplicate Part IDs</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-accept">
-                    <CheckCircle2 size={13} />
-                    <span>Part IDs unique</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-accept">
-                  <CheckCircle2 size={13} />
-                  <span>
-                    {validationResult.requiredColumnsFound
-                      ? 'All required columns found'
-                      : 'Missing required columns'}
-                  </span>
-                </div>
-                {validationResult.invalidNumericCount > 0 && (
-                  <div className="flex items-center gap-2 text-reject">
-                    <XCircle size={13} />
-                    <span>{validationResult.invalidNumericCount} non-numeric values</span>
-                  </div>
-                )}
+            {v ? (
+              <div className="space-y-1 text-[11px]">
+                {check(v.missingColumns.length === 0, v.missingColumns.length ? `Missing columns: ${v.missingColumns.join(', ')}` : 'All required columns present')}
+                {check(true, `${v.rowsTotal} rows, ${v.partsAccepted} parts accepted`)}
+                {check(v.rowsRejected === 0, `${v.rowsRejected} rows rejected (${v.duplicatePartIds} duplicate IDs)`)}
+                {check(v.nonNumericCells === 0, `${v.nonNumericCells} non-numeric/negative cells (treated as missing)`)}
+                {check(v.imputedCells === 0, `${v.imputedCells} cells imputed with lot median (flagged, display only)`)}
+                {check(v.insufficientDataParts === 0, `${v.insufficientDataParts} parts with insufficient 0h/24h data → REVIEW, no model score`)}
               </div>
-            ) : (
-              <div className="text-muted text-[11px] italic py-4">
-                No telemetry file loaded. Drop a CSV or load demo.
-              </div>
-            )}
+            ) : <div className="text-muted italic py-4">{error ?? 'No file loaded.'}</div>}
           </div>
-
-          {/* Ingest Action Button */}
-          <div className="pt-2 border-t border-hairline flex items-center justify-between">
-            {isSuccess && (
-              <span className="text-accept text-[11px] font-semibold">✓ Ingested into store!</span>
+          <div className="pt-2 border-t border-hairline space-y-2">
+            <input value={lotNumber} onChange={e => setLotNumber(e.target.value)} placeholder="Lot number (optional)"
+              className="w-full bg-workspace border border-hairline px-2 py-1 focus:outline-none" />
+            <button onClick={commit} disabled={!v || !v.ok || busy || mode === 'offline'}
+              className="w-full bg-toprail text-white py-1 disabled:opacity-40">{busy ? 'Ingesting and screening…' : 'Ingest and screen lot'}</button>
+            {error && v && <div className="text-reject">{error}</div>}
+            {result?.lotId && result.screening && (
+              <div className="text-accept">
+                ✓ {result.lotNumber}: {result.screening.nScreened} parts screened ({Object.entries(result.screening.verdicts).map(([k, n]) => `${n} ${k}`).join(', ')}).{' '}
+                <button className="underline" onClick={() => navigate('/lots')}>Open lot</button>
+              </div>
             )}
-            <button
-              onClick={handleCommitIngest}
-              disabled={!validationResult || !validationResult.requiredColumnsFound}
-              className="bg-toprail text-white text-xs px-3 py-1 font-mono disabled:opacity-40 hover:bg-toprail/90 ml-auto"
-            >
-              Ingest Lot into Store
-            </button>
           </div>
         </div>
       </div>
 
-      {/* 3. Split View: Raw CSV / Parsed Data / Issues */}
-      <div className="flex-1 min-h-0 flex flex-col bg-workspace overflow-hidden">
-        {/* Sub-tabs */}
-        <div className="h-[30px] border-b border-hairline px-4 flex items-center justify-between bg-panel shrink-0 font-mono text-xs">
-          <div className="flex space-x-1">
-            <button
-              onClick={() => setSelectedSubTab('Raw CSV')}
-              className={`px-3 py-1 border-b-2 font-medium ${
-                selectedSubTab === 'Raw CSV'
-                  ? 'border-toprail text-main bg-workspace'
-                  : 'border-transparent text-muted hover:text-main'
-              }`}
-            >
-              Raw CSV ({validationResult?.rawRows.length || 0} preview rows)
-            </button>
-            <button
-              onClick={() => setSelectedSubTab('Parsed Data')}
-              className={`px-3 py-1 border-b-2 font-medium ${
-                selectedSubTab === 'Parsed Data'
-                  ? 'border-toprail text-main bg-workspace'
-                  : 'border-transparent text-muted hover:text-main'
-              }`}
-            >
-              Parsed Data ({validationResult?.parsedParts.length || 0})
-            </button>
-            <button
-              onClick={() => setSelectedSubTab('Issues')}
-              className={`px-3 py-1 border-b-2 font-medium ${
-                selectedSubTab === 'Issues'
-                  ? 'border-toprail text-main bg-workspace'
-                  : 'border-transparent text-muted hover:text-main'
-              }`}
-            >
-              Issues ({validationResult?.issues.length || 0})
-            </button>
-          </div>
+      <div className="flex-1 min-h-0 grid grid-cols-2 gap-4 p-4 overflow-hidden">
+        <div className="border border-hairline overflow-auto">
+          <div className="p-2 bg-panel border-b border-hairline font-semibold">Raw preview (first {rows.length} lines)</div>
+          <table className="text-left border-collapse">
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className={i === 0 ? 'bg-panel font-bold text-muted' : ''}>
+                  {r.map((c, j) => <td key={j} className="px-2 border-r border-b border-hairline/40 whitespace-nowrap">{c === '' ? <span className="text-reject italic">&lt;empty&gt;</span> : c}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        {/* Sub-Tab Contents */}
-        <div className="flex-1 overflow-auto p-4 font-mono text-xs">
-          {selectedSubTab === 'Raw CSV' && (
-            <div className="border border-hairline overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <tbody>
-                  {validationResult?.rawRows && validationResult.rawRows.length > 0 ? (
-                    validationResult.rawRows.map((row, rIdx) => (
-                      <tr
-                        key={`raw-${rIdx}`}
-                        className={`h-[28px] border-b border-hairline ${
-                          rIdx === 0 ? 'bg-panel font-bold text-muted' : 'hover:bg-panel/40'
-                        }`}
-                      >
-                        <td className="px-3 border-r border-hairline text-muted w-10 text-right">
-                          {rIdx + 1}
-                        </td>
-                        {row.map((cell, cIdx) => (
-                          <td key={`c-${cIdx}`} className="px-3 border-r border-hairline/40">
-                            {cell || <span className="text-reject italic text-[10px]">&lt;empty&gt;</span>}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td className="p-4 text-muted text-center italic">No CSV loaded yet</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {selectedSubTab === 'Parsed Data' && (
-            <div className="border border-hairline overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="h-[28px] bg-panel border-b border-hairline text-muted font-bold">
-                    <th className="px-3">Row</th>
-                    <th className="px-3">Part ID</th>
-                    <th className="px-3 text-right">0h (µA)</th>
-                    <th className="px-3 text-right">24h (µA)</th>
-                    <th className="px-3 text-right">96h (µA)</th>
-                    <th className="px-3 text-right">168h (µA)</th>
-                    <th className="px-3 text-right">Slope</th>
-                    <th className="px-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {validationResult?.parsedParts.map((p, idx) => (
-                    <tr key={`parsed-${idx}`} className="h-[28px] border-b border-hairline/40 hover:bg-panel/40">
-                      <td className="px-3 text-muted">{idx + 1}</td>
-                      <td className="px-3 font-semibold">{p.partId}</td>
-                      <td className="px-3 text-right tabular-nums text-muted">{p.readings?.[0]?.toFixed(2)}</td>
-                      <td className="px-3 text-right tabular-nums text-muted">{p.readings?.[24]?.toFixed(2)}</td>
-                      <td className="px-3 text-right tabular-nums text-muted">{p.readings?.[96]?.toFixed(2)}</td>
-                      <td className="px-3 text-right tabular-nums font-semibold">{p.readings?.[168]?.toFixed(2)}</td>
-                      <td className="px-3 text-right tabular-nums text-muted">{p.slope?.toFixed(3)}</td>
-                      <td className="px-3">
-                        <span className={p.status === 'Reject' ? 'text-reject font-bold' : p.status === 'Review' ? 'text-review' : 'text-accept'}>
-                          {p.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {selectedSubTab === 'Issues' && (
-            <div className="space-y-1.5">
-              {validationResult?.issues && validationResult.issues.length > 0 ? (
-                validationResult.issues.map((iss, i) => (
-                  <div
-                    key={`iss-${i}`}
-                    className={`p-2 border flex items-center justify-between ${
-                      iss.severity === 'error'
-                        ? 'border-reject/40 bg-reject-bg text-reject'
-                        : 'border-review/40 bg-review-bg text-review'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {iss.severity === 'error' ? <AlertTriangle size={13} /> : <AlertTriangle size={13} />}
-                      <span>
-                        Row {iss.row}: {iss.message} {iss.partId ? `(Part: ${iss.partId})` : ''}
-                      </span>
-                    </div>
-                    <span className="text-[10px] uppercase font-bold">{iss.severity}</span>
-                  </div>
-                ))
-              ) : (
-                <div className="p-4 text-accept text-center">✓ No validation issues detected!</div>
-              )}
-            </div>
-          )}
+        <div className="border border-hairline overflow-auto">
+          <div className="p-2 bg-panel border-b border-hairline font-semibold">Issues ({v?.issues.length ?? 0})</div>
+          <div className="p-2 space-y-1">
+            {v?.issues.map((iss, i) => (
+              <div key={i} className={`p-1.5 border flex gap-2 ${iss.severity === 'error' ? 'border-reject/40 bg-reject-bg text-reject' : 'border-review/40 bg-review-bg text-review'}`}>
+                <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                <span>Row {iss.row}{iss.partId ? ` (${iss.partId})` : ''}{iss.column ? ` [${iss.column}]` : ''}: {iss.message}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

@@ -6,9 +6,9 @@ Executes synthetic data generation and performs bulk batch inserts into PostgreS
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, List
 
 # Reconfigure stdout/stderr for UTF-8 on Windows
@@ -29,12 +29,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, insert
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
-from backend.app.core.database import SessionLocal, engine
-from backend.app.models import Base, BurnInReading, Component, Lot
+from backend.app.core.database import SessionLocal
+from backend.app.models import BurnInReading, Component, Lot
 from data_engine.generator import BurnInSyntheticGenerator
 
 console = Console(highlight=False)

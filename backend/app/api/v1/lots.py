@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Dict, List
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,10 +22,9 @@ from backend.app.schemas.lot import (
     LotSummary,
     ParameterDistribution,
 )
-from backend.app.services.local_explainer import DeterministicExplainer
+from backend.app.services.lot_stats import compute_lot_statistics
 
 router = APIRouter(prefix="/lots", tags=["Lots"])
-explainer = DeterministicExplainer()
 
 
 @router.get("", response_model=List[LotSummary], summary="List all manufacturing lots with triage counts")
@@ -40,6 +40,7 @@ async def list_lots(
             Lot.lot_number,
             Lot.wafer_id,
             Lot.status,
+            Lot.source,
             Lot.created_at,
             func.count(Component.id).label("total_components"),
             func.count(case((ModelPrediction.verdict == ScreeningVerdict.PASS, 1))).label("pass_count"),
@@ -61,6 +62,7 @@ async def list_lots(
             lot_number=r.lot_number,
             wafer_id=r.wafer_id,
             status=r.status.value if hasattr(r.status, "value") else str(r.status),
+            source=r.source,
             created_at=r.created_at,
             total_components=r.total_components,
             pass_count=r.pass_count,
@@ -126,7 +128,7 @@ async def get_lot_distribution(
         for r in reading_rows
     ]
 
-    stats = explainer.compute_lot_statistics(readings_dicts)
+    stats = compute_lot_statistics(readings_dicts)
 
     param_meta = [
         ("leakage_current_ua", "Leakage Current (uA)", "uA", 50.0),

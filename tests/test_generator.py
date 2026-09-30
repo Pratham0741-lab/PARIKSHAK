@@ -5,7 +5,7 @@ and specific screening defect signatures.
 """
 
 import numpy as np
-import pytest
+
 from data_engine.generator import BurnInSyntheticGenerator
 
 
@@ -78,7 +78,7 @@ def test_steep_drift_signature() -> None:
     assert len(steep) > 0
 
     # Group by component and verify monotonic upward drift
-    for comp_id, comp_df in steep.groupby("component_id"):
+    for _comp_id, comp_df in steep.groupby("component_id"):
         comp_df = comp_df.sort_values("interval_hours")
         leak_0h = comp_df[comp_df["interval_hours"] == 0]["leakage_current_ua"].iloc[0]
         leak_168h = comp_df[comp_df["interval_hours"] == 168]["leakage_current_ua"].iloc[0]
@@ -97,7 +97,7 @@ def test_late_drift_signature() -> None:
     late = df[df["ground_truth_label"] == "LATE_DRIFT"]
     assert len(late) > 0
 
-    for comp_id, comp_df in late.groupby("component_id"):
+    for _comp_id, comp_df in late.groupby("component_id"):
         comp_df = comp_df.sort_values("interval_hours")
         leak_0h = comp_df[comp_df["interval_hours"] == 0]["leakage_current_ua"].iloc[0]
         leak_24h = comp_df[comp_df["interval_hours"] == 24]["leakage_current_ua"].iloc[0]
@@ -134,7 +134,7 @@ def test_benign_high_lot_behavior() -> None:
 
     # In benign high lot, all parts are structurally NORMAL (ground_truth_flag = False)
     assert (benign["ground_truth_label"] == "NORMAL").all()
-    assert (benign["ground_truth_flag"] == False).all()
+    assert (~benign["ground_truth_flag"].astype(bool)).all()
 
     # Elevated baseline ~22 uA
     t0_leakage = benign[benign["interval_hours"] == 0]["leakage_current_ua"].mean()
@@ -150,7 +150,7 @@ def test_datasheet_breaches_computation() -> None:
     gen = BurnInSyntheticGenerator(num_lots=5, components_per_lot=50, random_seed=42)
     df = gen.generate_dataset()
 
-    for comp_id, comp_df in df.groupby("component_id"):
+    for _comp_id, comp_df in df.groupby("component_id"):
         breached_flag = comp_df["is_datasheet_breached"].iloc[0]
         actual_breach = bool(
             (comp_df["leakage_current_ua"] > 50.0).any()

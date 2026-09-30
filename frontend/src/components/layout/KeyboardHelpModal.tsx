@@ -9,9 +9,9 @@ export const KeyboardHelpModal: React.FC = () => {
   const shortcuts = [
     { key: 'J', desc: 'Select next row / component in table or list' },
     { key: 'K', desc: 'Select previous row / component in table or list' },
-    { key: 'A', desc: 'Mark selected part as Accept' },
-    { key: 'R', desc: 'Mark selected part as Review (escalate to QA)' },
-    { key: 'X', desc: 'Mark selected part as Reject (quarantine)' },
+    { key: 'A', desc: 'Accept selected part(s): opens decision dialog, comment required' },
+    { key: 'R', desc: 'Send selected part(s) to Review: comment required' },
+    { key: 'X', desc: 'Reject (quarantine) selected part(s): comment required' },
     { key: '/', desc: 'Focus active search input' },
     { key: '?', desc: 'Toggle keyboard shortcuts help dialog' },
     { key: 'Esc', desc: 'Close open modal or dialog' },

@@ -1,50 +1,83 @@
 """
-Pydantic Schemas for Local Explainability Engine outputs.
+Schemas for per-part explanations generated from the model's own outputs (ml_engine/explain.py).
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
-class DriftMetrics(BaseModel):
-    """Drift and 168h forecast metrics."""
-    drift_slope_ua_per_hr: float = Field(..., description="Estimated or projected leakage drift rate")
-    pred_leakage_168h: float = Field(..., description="Forecasted 168h leakage in uA")
-    pred_iddq_168h: float = Field(..., description="Forecasted 168h IDDQ in mA")
-    pred_delay_168h: float = Field(..., description="Forecasted 168h delay in ns")
-    module_b_flag: bool = Field(..., description="True if early drift alert triggered")
+class ModuleAContribution(BaseModel):
+    parameter: str
+    robust_z: Optional[float] = Field(None, description="Part vs own-lot median, in lot-MAD units (mean of 0h/24h)")
+    contribution: Optional[float] = Field(None, description="max(0, robust_z): additive share of the Module A score")
+    value_0_24h_mean: Optional[float] = None
+    lot_median: Optional[float] = None
+    lot_mad: Optional[float] = None
 
 
-class LotComparison(BaseModel):
-    """Lot-relative comparison scores."""
-    module_a_score: float = Field(..., description="Composite lot anomaly score [0, 1]")
-    module_a_mahalanobis: float = Field(..., description="Mahalanobis distance from lot center")
-    module_a_flag: bool = Field(..., description="True if flagged as spatial outlier")
-    initial_0h_max_z_mad: float = Field(..., description="Peak MAD excursion at t=0h")
+class ModuleAExplanation(BaseModel):
+    score: Optional[float]
+    threshold: Optional[float] = Field(None, description="Learned threshold (null = module disabled)")
+    flag: bool
+    decision_statistic: Optional[str] = None
+    contributions: List[ModuleAContribution]
+    diagnostics: Optional[Dict[str, Any]] = None
+    top_contributor: Optional[str] = None
+
+
+class ModuleBParameter(BaseModel):
+    parameter: str
+    forecast_168h: Optional[float] = None
+    interval_lower: Optional[float] = None
+    interval_upper: Optional[float] = None
+    predicted_rate: Optional[float] = None
+    lot_median_rate: Optional[float] = None
+    lot_spread: Optional[float] = None
+    safety_slope: Optional[float] = None
+    z: Optional[float] = None
+    exceeds_safety_slope: Optional[bool] = None
+    rate_unit: Optional[str] = None
+
+
+class FeatureContribution(BaseModel):
+    feature: str
+    label: str
+    value: float = Field(..., description="Signed TreeSHAP contribution in the model's target space")
+    target_space: str
+    effect_pct_on_forecast: Optional[float] = Field(None, description="Multiplicative effect on the 168h forecast (log-ratio target)")
+
+
+class ModuleBExplanation(BaseModel):
+    score: Optional[float]
+    threshold_k: Optional[float] = None
+    flag: bool
+    driver_parameter: str
+    per_parameter: List[ModuleBParameter]
+    contributions: List[FeatureContribution]
+    contribution_target_space: Optional[str] = None
+    top_contributor: Optional[str] = None
+    interval_coverage_target: Optional[float] = None
+
+
+class StaticLimitStatus(BaseModel):
+    limits: Dict[str, float]
+    max_observed_0_24h: Dict[str, Optional[float]]
+    observed_breach: Dict[str, bool]
+    forecast_breach: Dict[str, bool]
 
 
 class ExplanationResponse(BaseModel):
-    """Complete structured output from the Local Deterministic Explainability Engine."""
-    component_id: uuid.UUID = Field(..., description="Component UUID")
-    serial_number: str = Field(..., description="Serial number")
-    lot_number: str = Field(..., description="Parent lot number")
-    wafer_id: str = Field(..., description="Wafer ID")
-    risk_category: str = Field(
-        ...,
-        description="Assigned risk: CRITICAL_RUNAWAY, LATENT_LOT_OUTLIER, SUBTLE_DEGRADATION, or NOMINAL",
-    )
-    primary_parameter: str = Field(..., description="Key parameter driving anomaly or excursion")
-    recommended_action: str = Field(
-        ...,
-        description="Recommended action: QUARANTINE_FLIGHT_HARDWARE, HOLD_FOR_96H_CHECK, or PASS_FLIGHT_READY",
-    )
-    verdict: str = Field(..., description="Screening verdict: PASS, REVIEW, or REJECT")
-    verdict_reason: str = Field(..., description="Deterministic rule trace")
-    executive_summary: str = Field(..., description="High-level engineering summary")
-    technical_justification: str = Field(..., description="Detailed Markdown audit report")
-    parameter_metrics: Dict[str, Any] = Field(..., description="Per-parameter interval stats and Z_MAD")
-    drift_metrics: DriftMetrics = Field(..., description="Forecasted degradation trajectory")
-    lot_comparison: LotComparison = Field(..., description="Spatial lot covariance metrics")
+    component_id: uuid.UUID
+    serial_number: str
+    lot_number: str
+    verdict: Optional[str]
+    verdict_reason: Optional[str]
+    summary: str = Field(..., description="Plain-language justification generated from this part's model outputs")
+    module_a: ModuleAExplanation
+    module_b: ModuleBExplanation
+    static_limit: StaticLimitStatus
+    cv_fold: Optional[int] = Field(None, description="Out-of-fold provenance of the prediction")

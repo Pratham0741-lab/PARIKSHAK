@@ -3,12 +3,6 @@ Schemas package initialization.
 Exports all Pydantic request and response models.
 """
 
-from backend.app.schemas.lot import (
-    IntervalStats,
-    LotDistributionResponse,
-    LotSummary,
-    ParameterDistribution,
-)
 from backend.app.schemas.component import (
     ComponentListItem,
     ComponentProfileResponse,
@@ -16,17 +10,19 @@ from backend.app.schemas.component import (
     PaginatedComponentsResponse,
     ReadingItem,
 )
-from backend.app.schemas.explanation import (
-    DriftMetrics,
-    ExplanationResponse,
-    LotComparison,
+from backend.app.schemas.explanation import ExplanationResponse
+from backend.app.schemas.lot import (
+    IntervalStats,
+    LotDistributionResponse,
+    LotSummary,
+    ParameterDistribution,
 )
+from backend.app.schemas.metrics import BenchmarkMetricsResponse
 from backend.app.schemas.review import (
     ReviewActionRequest,
     ReviewActionResponse,
     ReviewItem,
 )
-from backend.app.schemas.metrics import BenchmarkMetricsResponse
 
 __all__ = [
     "IntervalStats",
@@ -38,9 +34,7 @@ __all__ = [
     "ModelPredictionItem",
     "PaginatedComponentsResponse",
     "ReadingItem",
-    "DriftMetrics",
     "ExplanationResponse",
-    "LotComparison",
     "ReviewActionRequest",
     "ReviewActionResponse",
     "ReviewItem",

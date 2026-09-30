@@ -1,0 +1,25 @@
+# Python lint configuration (run: python -m ruff check .)
+line-length = 120
+target-version = "py311"
+extend-exclude = ["frontend", "backend/alembic/versions"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+  "E501",   # long lines: formatting is not enforced; readability over wrapping in f-strings/tables
+  "UP006",  # typing.Dict/List annotations are kept where the existing code uses them
+  "UP035",  # same
+  "UP007",  # Optional[X] kept for consistency with existing SQLAlchemy/Pydantic models
+  "B008",   # FastAPI's Depends()/Query() in argument defaults is the framework idiom
+]
+
+[lint.per-file-ignores]
+# Scripts put the repo root on sys.path before importing project modules.
+"scripts/*.py" = ["E402"]
+"ml_engine/run_screening.py" = ["E402"]
+"evaluation/run.py" = ["E402"]
+"evaluation/module_b_study.py" = ["E402"]
+"evaluation/module_a_dev_study.py" = ["E402"]
+"data_engine/seed_db.py" = ["E402"]
+"backend/app/main.py" = ["E402"]
+"backend/alembic/env.py" = ["E402"]

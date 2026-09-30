@@ -1,0 +1,129 @@
+"""
+Score predictions against separately-held ground truth.
+
+    python -m evaluation.score --predictions preds.csv --truth truth.csv [--json out.json]
+
+`preds.csv` needs: component_id, screen_flag (or verdict), pred_{leakage,iddq,delay}_168h,
+and optionally baseline_{param}_168h. `truth.csv` needs: component_id, ground_truth_flag,
+optionally ground_truth_label and true_{param}_168h. Components are joined on component_id;
+parts without ground truth (e.g. ingested lots) are excluded and counted.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from typing import Any, Dict
+
+import pandas as pd
+
+from evaluation.cost import CostConfig, cost_report
+from evaluation.metrics import regression_metrics
+from ml_engine.features import PARAMETERS
+
+PRED_COLUMN = {
+    "leakage_current_ua": "pred_leakage_168h",
+    "iddq_ma": "pred_iddq_168h",
+    "propagation_delay_ns": "pred_delay_168h",
+}
+
+
+def _flag(preds: pd.DataFrame) -> pd.Series:
+    if "screen_flag" in preds.columns:
+        return preds["screen_flag"].astype(str).str.lower().isin(["true", "1"])
+    return preds["verdict"].isin(["REVIEW", "REJECT"])
+
+
+def score(predictions: pd.DataFrame, truth: pd.DataFrame, cost: CostConfig | None = None) -> Dict[str, Any]:
+    cost = cost or CostConfig()
+    preds = predictions.copy()
+    preds["component_id"] = preds["component_id"].astype(str)
+    tr = truth.copy()
+    if "component_id" in tr.columns:
+        tr = tr.set_index("component_id")
+    tr.index = tr.index.astype(str)
+
+    joined = preds.set_index("component_id").join(tr, how="left", rsuffix="_truth")
+    has_truth = joined["ground_truth_flag"].notna()
+    scored = joined[has_truth]
+    y_true = scored["ground_truth_flag"].astype(str).str.lower().isin(["true", "1"])
+    y_pred = _flag(scored.reset_index())
+    y_pred.index = scored.index
+
+    result: Dict[str, Any] = {
+        "n_predictions": int(len(preds)),
+        "n_scored": int(len(scored)),
+        "n_excluded_no_truth": int((~has_truth).sum()),
+        "detection": cost_report(y_true.to_numpy(), y_pred.to_numpy(), cost),
+    }
+
+    n_def = int(y_true.sum())
+    n_ok = int(len(y_true) - n_def)
+    result["trivial_policies"] = {
+        "flag_all_parts": {"weighted_cost": cost.fp_cost * n_ok, "recall": 1.0 if n_def else 0.0},
+        "flag_no_parts": {"weighted_cost": cost.fn_cost * n_def, "recall": 0.0},
+    }
+
+    if "ground_truth_label" in scored.columns:
+        per_class = {}
+        for label, grp in scored.groupby("ground_truth_label"):
+            flagged = y_pred.loc[grp.index]
+            per_class[str(label)] = {"n": int(len(grp)), "flagged_rate": float(flagged.mean())}
+        result["per_class"] = per_class
+
+    regression: Dict[str, Any] = {}
+    for p in PARAMETERS:
+        tcol = f"true_{p}_168h"
+        if tcol not in scored.columns or PRED_COLUMN[p] not in scored.columns:
+            continue
+        entry = {"model": regression_metrics(scored[tcol], scored[PRED_COLUMN[p]])}
+        short = {"leakage_current_ua": "leakage", "iddq_ma": "iddq", "propagation_delay_ns": "delay"}[p]
+        lo_c, hi_c = f"pi_lo_{short}_168h", f"pi_hi_{short}_168h"
+        if lo_c in scored.columns and hi_c in scored.columns:
+            ok = scored[tcol].notna() & scored[lo_c].notna()
+            t, lo, hi = scored.loc[ok, tcol], scored.loc[ok, lo_c], scored.loc[ok, hi_c]
+            entry["interval"] = {
+                "n": int(ok.sum()),
+                "empirical_coverage": float(((t >= lo) & (t <= hi)).mean()) if ok.any() else float("nan"),
+                "mean_width": float((hi - lo).mean()) if ok.any() else float("nan"),
+                "width_min": float((hi - lo).min()) if ok.any() else float("nan"),
+                "width_max": float((hi - lo).max()) if ok.any() else float("nan"),
+            }
+        bcol = f"baseline_{p}_168h"
+        if bcol in scored.columns:
+            entry["linear_baseline"] = regression_metrics(scored[tcol], scored[bcol])
+        regression[p] = entry
+    result["regression"] = regression
+    return result
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--predictions", required=True)
+    ap.add_argument("--truth", required=True)
+    ap.add_argument("--json", help="write full metrics JSON here")
+    ap.add_argument("--fn-cost", type=float, default=None, help="cost of a missed defect (default from settings: 20)")
+    ap.add_argument("--fp-cost", type=float, default=None, help="cost of a false alarm (default from settings: 1)")
+    args = ap.parse_args(argv)
+
+    cfg = CostConfig.from_settings(fn_cost=args.fn_cost, fp_cost=args.fp_cost)
+    res = score(pd.read_csv(args.predictions), pd.read_csv(args.truth), cfg)
+    d = res["detection"]
+    print(f"scored parts: {res['n_scored']} (excluded without truth: {res['n_excluded_no_truth']})")
+    print(f"TP={d['tp']} FN={d['fn']} FP={d['fp']} TN={d['tn']}  recall={d['recall']:.4f}  precision={d['precision']:.4f}  F2={d['f2']:.4f}")
+    print(f"weighted cost={d['weighted_cost']:.1f} (FN_COST={cfg.fn_cost:g}, FP_COST={cfg.fp_cost:g}); "
+          f"per 1000 parts={d['cost_per_1000_parts']:.1f}")
+    for p, e in res["regression"].items():
+        line = f"{p}: MAE={e['model']['mae']:.4f} RMSE={e['model']['rmse']:.4f}"
+        if "linear_baseline" in e:
+            line += f"  (linear baseline MAE={e['linear_baseline']['mae']:.4f})"
+        print(line)
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as fh:
+            json.dump(res, fh, indent=2)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

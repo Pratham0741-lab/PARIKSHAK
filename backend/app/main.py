@@ -4,8 +4,8 @@ Features CORS middleware, API v1 routing, health checks, and lifecycle managemen
 """
 
 import sys
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 # Automatically bootstrap project root into sys.path to allow execution from either backend/ or repo root
 _project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -50,17 +50,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS Middleware for Next.js / React frontend
+# CORS for the React (Vite) frontend; origins come from settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

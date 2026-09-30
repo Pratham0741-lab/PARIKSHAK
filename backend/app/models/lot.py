@@ -6,7 +6,9 @@ import enum
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import DateTime, Enum as SAEnum, String, func
+
+from sqlalchemy import DateTime, String, func
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,6 +49,13 @@ class Lot(Base):
         nullable=True,
         index=True,
         doc="Originating silicon wafer identifier (e.g. WAF-420-B)",
+    )
+    source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="SYNTHETIC",
+        server_default="SYNTHETIC",
+        doc="SYNTHETIC (seeded generator, labelled) or CSV_INGEST (unlabelled production data)",
     )
     status: Mapped[LotStatus] = mapped_column(
         SAEnum(LotStatus, name="lot_status_enum", native_enum=True),

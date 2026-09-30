@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -101,6 +101,13 @@ class BurnInSyntheticGenerator:
         self.benign_lot_fraction = benign_lot_fraction
 
         self.rng = np.random.default_rng(seed=self.random_seed)
+        # Deterministic identifiers: derived from the seed with uuid5 so repeated runs with the
+        # same seed yield identical IDs without consuming the numeric RNG stream.
+        self._id_namespace = (
+            uuid.uuid5(uuid.NAMESPACE_OID, f"sih26170-burnin-seed-{self.random_seed}")
+            if self.random_seed is not None
+            else None
+        )
 
         # Default defect rates per normal lot (~12% total anomalies)
         self.defect_rates = defect_rates or {
@@ -109,6 +116,12 @@ class BurnInSyntheticGenerator:
             "LATE_DRIFT": 0.03,           # 3%
             "SUBTLE_MULTIVARIATE": 0.03,  # 3%
         }
+
+    def _make_id(self, key: str) -> uuid.UUID:
+        """Seed-derived UUID (uuid5) when seeded, random UUID otherwise."""
+        if self._id_namespace is None:
+            return uuid.uuid4()
+        return uuid.uuid5(self._id_namespace, key)
 
     @staticmethod
     def _compute_mad(data: np.ndarray) -> float:
@@ -130,8 +143,8 @@ class BurnInSyntheticGenerator:
         benign_indices = set(self.rng.choice(self.num_lots, size=num_benign, replace=False))
 
         for lot_idx in range(self.num_lots):
-            lot_id = uuid.uuid4()
             lot_num = f"LOT-2026-B{lot_idx + 1:03d}"
+            lot_id = self._make_id(f"lot-{lot_num}")
             wafer_id = f"WAF-ISRO-{(lot_idx % 25) + 1:02d}{chr(65 + (lot_idx % 6))}"
             is_benign = lot_idx in benign_indices
 
@@ -327,7 +340,7 @@ class BurnInSyntheticGenerator:
         """
         profiles = self._create_lot_profiles()
         rows: List[Dict[str, Any]] = []
-        base_timestamp = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+        base_timestamp = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
 
         for profile in profiles:
             # 1. Sample preliminary nominal components to calculate empirical lot median and MAD
@@ -346,8 +359,8 @@ class BurnInSyntheticGenerator:
             labels = self._assign_labels_to_lot(profile)
 
             for comp_idx, (label, is_anomaly) in enumerate(labels, start=1):
-                comp_id = uuid.uuid4()
                 serial_num = f"{profile.lot_number}-SN{comp_idx:04d}"
+                comp_id = self._make_id(f"component-{serial_num}")
 
                 readings, is_breached = self._generate_component_trajectories(
                     profile=profile,
@@ -391,7 +404,7 @@ class BurnInSyntheticGenerator:
         components_records: List[Dict[str, Any]] = []
         readings_records: List[Dict[str, Any]] = []
 
-        base_timestamp = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+        base_timestamp = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
 
         for profile in profiles:
             lots_records.append(
@@ -420,8 +433,8 @@ class BurnInSyntheticGenerator:
             labels = self._assign_labels_to_lot(profile)
 
             for comp_idx, (label, is_anomaly) in enumerate(labels, start=1):
-                comp_id = uuid.uuid4()
                 serial_num = f"{profile.lot_number}-SN{comp_idx:04d}"
+                comp_id = self._make_id(f"component-{serial_num}")
 
                 readings, is_breached = self._generate_component_trajectories(
                     profile=profile,
@@ -445,7 +458,7 @@ class BurnInSyntheticGenerator:
                     recorded_at = base_timestamp + datetime.timedelta(hours=interval_hours)
                     readings_records.append(
                         {
-                            "id": uuid.uuid4(),
+                            "id": self._make_id(f"reading-{serial_num}-{interval_hours}"),
                             "component_id": comp_id,
                             "interval_hours": interval_hours,
                             "leakage_current_ua": round(r["leakage"], 4),

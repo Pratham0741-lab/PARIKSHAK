@@ -7,194 +7,111 @@ import { StatusMarker } from '../components/common/StatusMarker';
 import { calculateMedian, calculateMAD } from '../lib/analytics/robustZ';
 import { Search, ArrowUpDown } from 'lucide-react';
 
+type SortKey = 'partId' | 'val0' | 'val24' | 'val96' | 'val168' | 'rate' | 'status';
+
+const fmt = (v: number | null | undefined, nd = 2) => (v == null ? '–' : v.toFixed(nd));
+
 export const LotOverviewScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { parts, activeLot, selectedPartId, selectPart } = useStore();
+  const { parts, predictions, activeLot, selectedPartId, selectPart, config } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortColumn, setSortColumn] = useState<string>('partId');
-  const [sortAsc, setSortAsc] = useState<boolean>(true);
+  const [sortColumn, setSortColumn] = useState<SortKey>('partId');
+  const [sortAsc, setSortAsc] = useState(true);
+  const staticLimit = config?.datasheetLimits.leakage_current_ua ?? null;
 
-  // Summary distribution stats for histogram
-  const { histogramBins, median168h, mad168h, partsAboveWarn, partsAboveLimit, flaggedCount } = useMemo(() => {
-    if (parts.length === 0) {
-      return {
-        histogramBins: [],
-        median168h: 0,
-        mad168h: 0,
-        partsAboveWarn: 0,
-        partsAboveLimit: 0,
-        flaggedCount: 0,
-      };
-    }
-
-    const vals = parts.map(p => p.readings[168] || p.current168h);
+  // Distribution of the 24h leakage reading (the latest reading available at decision time).
+  const stats = useMemo(() => {
+    const vals = parts.map(p => p.readings[24]).filter((v): v is number => v != null);
+    if (vals.length === 0) return null;
     const med = calculateMedian(vals);
     const mad = calculateMAD(vals, med);
-
-    const warnLimit = 20.0;
-    const critLimit = activeLot?.staticLimitUa ?? 50.0;
-
-    const aboveWarn = parts.filter(p => (p.readings[168] || 0) > warnLimit).length;
-    const aboveLimit = parts.filter(p => (p.readings[168] || 0) > critLimit).length;
-    const flagged = parts.filter(p => p.isFlagged).length;
-
-    // Build D3 histogram bins
-    const maxVal = Math.max(critLimit * 1.2, d3.max(vals) || 60);
-    const binGen = d3
-      .bin<number, number>()
-      .domain([0, maxVal])
-      .thresholds(25);
-    const bins = binGen(vals);
-
+    const maxVal = Math.max(staticLimit ?? 0, d3.max(vals) || 1) * 1.1;
+    const bins = d3.bin<number, number>().domain([0, maxVal]).thresholds(30)(vals);
     return {
-      histogramBins: bins,
-      median168h: med,
-      mad168h: mad,
-      partsAboveWarn: aboveWarn,
-      partsAboveLimit: aboveLimit,
-      flaggedCount: flagged,
+      bins, med, mad, maxVal,
+      aboveLimit: staticLimit == null ? 0 : parts.filter(p => [0, 24].some(t => (p.readings[t] ?? 0) > staticLimit)).length,
+      flagged: parts.filter(p => p.isFlagged).length,
+      insufficient: parts.filter(p => p.insufficientData).length,
+      byInspector: parts.filter(p => p.statusSource === 'inspector').length,
     };
-  }, [parts, activeLot]);
+  }, [parts, staticLimit]);
 
-  // Sorting and filtering
-  const filteredAndSortedParts = useMemo(() => {
-    let result = parts.filter(p =>
-      p.partId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.reason.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.status.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+  const rate = (serial: string) => predictions[serial]?.moduleB?.perParam.leakage_current_ua?.predictedRate ?? null;
 
-    result = [...result].sort((a, b) => {
-      let vA: any = a.partId;
-      let vB: any = b.partId;
-
-      if (sortColumn === 'val0') {
-        vA = a.readings[0] || 0;
-        vB = b.readings[0] || 0;
-      } else if (sortColumn === 'val24') {
-        vA = a.readings[24] || 0;
-        vB = b.readings[24] || 0;
-      } else if (sortColumn === 'val96') {
-        vA = a.readings[96] || 0;
-        vB = b.readings[96] || 0;
-      } else if (sortColumn === 'val168') {
-        vA = a.readings[168] || 0;
-        vB = b.readings[168] || 0;
-      } else if (sortColumn === 'delta') {
-        vA = a.delta;
-        vB = b.delta;
-      } else if (sortColumn === 'status') {
-        vA = a.status;
-        vB = b.status;
+  const rows = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    const r = parts.filter(p => p.partId.toLowerCase().includes(q) || p.reason.toLowerCase().includes(q) || p.status.toLowerCase().includes(q));
+    const key = (p: typeof parts[number]): number | string => {
+      switch (sortColumn) {
+        case 'val0': return p.readings[0] ?? -Infinity;
+        case 'val24': return p.readings[24] ?? -Infinity;
+        case 'val96': return p.readings[96] ?? -Infinity;
+        case 'val168': return p.readings[168] ?? -Infinity;
+        case 'rate': return rate(p.partId) ?? -Infinity;
+        case 'status': return p.status;
+        default: return p.partId;
       }
+    };
+    return [...r].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * (sortAsc ? 1 : -1));
+  }, [parts, searchTerm, sortColumn, sortAsc, predictions]); // eslint-disable-line react-hooks/exhaustive-deps
 
-      if (vA < vB) return sortAsc ? -1 : 1;
-      if (vA > vB) return sortAsc ? 1 : -1;
-      return 0;
-    });
-
-    return result;
-  }, [parts, searchTerm, sortColumn, sortAsc]);
-
-  const handleSort = (col: string) => {
-    if (sortColumn === col) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortColumn(col);
-      setSortAsc(true);
-    }
+  const handleSort = (col: SortKey) => {
+    if (sortColumn === col) setSortAsc(!sortAsc);
+    else { setSortColumn(col); setSortAsc(true); }
   };
 
-  // Virtualization
   const parentRef = useRef<HTMLDivElement>(null);
-  const rowVirtualizer = useVirtualizer({
-    count: filteredAndSortedParts.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 28,
-    overscan: 10,
-  });
+  const rowVirtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 28, overscan: 10 });
+  const pct = (n: number) => `${((n / (parts.length || 1)) * 100).toFixed(1)}%`;
 
-  const staticLimit = activeLot?.staticLimitUa ?? 50.0;
+  const header = (label: string, col: SortKey, span: string, right = true) => (
+    <div onClick={() => handleSort(col)} className={`${span} flex items-center gap-1 cursor-pointer hover:text-main ${right ? 'justify-end' : ''}`}>
+      <span>{label}</span><ArrowUpDown size={10} />
+    </div>
+  );
 
   return (
     <div className="w-full h-full flex flex-col bg-workspace overflow-hidden">
-      {/* 1. Lot Header Strip */}
       <div className="border-b border-hairline px-4 py-2 bg-panel flex items-center justify-between text-xs font-mono">
         <div>
-          <span className="font-bold text-sm text-main">
-            Lot Overview {activeLot?.lotNumber}
-          </span>
+          <span className="font-bold text-sm text-main">Lot Overview {activeLot?.lotNumber}</span>
           <div className="text-[11px] text-muted flex gap-4 mt-0.5 font-sans">
-            <span>Date code: <strong className="text-main font-mono">{activeLot?.dateCode}</strong></span>
-            <span>Package: <strong className="text-main font-mono">{activeLot?.package}</strong></span>
-            <span>Device: <strong className="text-main font-mono">{activeLot?.deviceType}</strong></span>
-            <span>Test condition: <strong className="text-main font-mono">{activeLot?.testCondition}</strong></span>
-            <span>Total parts: <strong className="text-main font-mono">{parts.length.toLocaleString()}</strong></span>
+            <span>Source: <strong className="text-main font-mono">{activeLot?.source}</strong></span>
+            <span>Wafer: <strong className="text-main font-mono">{activeLot?.waferId ?? '–'}</strong></span>
+            <span>Parts: <strong className="text-main font-mono">{parts.length.toLocaleString()}</strong></span>
+            <span>Model verdicts: <strong className="text-main font-mono">{activeLot ? `${activeLot.passCount} pass / ${activeLot.reviewCount} review / ${activeLot.rejectCount} reject` : '–'}</strong></span>
           </div>
         </div>
         <div className="text-right text-[11px] text-muted font-sans">
-          <div>Started: <span className="font-mono text-main">{activeLot?.startedAt ? new Date(activeLot.startedAt).toLocaleDateString() : 'N/A'}</span></div>
-          <div>Status: <span className="text-accept font-semibold font-mono">{activeLot?.status}</span></div>
+          <div>Created: <span className="font-mono text-main">{activeLot?.createdAt ? new Date(activeLot.createdAt).toLocaleString() : '–'}</span></div>
+          <div>Status: <span className="font-semibold font-mono text-main">{activeLot?.status}</span></div>
         </div>
       </div>
 
-      {/* 2. Histogram Strip & Summary Plain Text Counts (No KPI cards!) */}
       <div className="h-[140px] border-b border-hairline px-4 py-2 flex items-center justify-between bg-workspace shrink-0">
-        {/* Histogram */}
         <div className="flex-1 h-full pr-8">
           <div className="text-[11px] font-mono text-muted mb-1 flex items-center justify-between">
-            <span className="font-semibold text-main">Iddq Distribution (168h)</span>
-            <span>
-              Median: <strong className="text-main font-mono">{median168h.toFixed(2)} µA</strong> (±{mad168h.toFixed(2)} MAD)
-            </span>
+            <span className="font-semibold text-main">Leakage distribution at 24h (latest reading at decision time)</span>
+            {stats && <span>Median <strong className="text-main">{stats.med.toFixed(2)} µA</strong> (MAD {stats.mad.toFixed(2)})</span>}
           </div>
           <svg className="w-full h-[95px] overflow-visible">
-            {histogramBins.length > 0 && (() => {
-              const maxCount = d3.max(histogramBins, b => b.length) || 1;
-              const w = 450;
-              const h = 75;
-              const xSc = d3.scaleLinear().domain([0, d3.max(histogramBins, b => b.x1 || 0) || 60]).range([0, w]);
-              const ySc = d3.scaleLinear().domain([0, maxCount]).range([h, 0]);
-
-              const medX = xSc(median168h);
-              const limitX = xSc(staticLimit);
-
+            {stats && (() => {
+              const w = 450, h = 75;
+              const maxCount = d3.max(stats.bins, b => b.length) || 1;
+              const x = d3.scaleLinear().domain([0, stats.maxVal]).range([0, w]);
+              const y = d3.scaleLinear().domain([0, maxCount]).range([h, 0]);
               return (
-                <g transform="translate(10, 5)">
-                  {/* Bins */}
-                  {histogramBins.map((bin, i) => {
-                    const x0 = xSc(bin.x0 || 0);
-                    const x1 = xSc(bin.x1 || 0);
-                    const bw = Math.max(1, x1 - x0 - 1);
-                    const bh = h - ySc(bin.length);
-                    const isOverLimit = (bin.x0 || 0) >= staticLimit;
-
-                    return (
-                      <rect
-                        key={`bin-${i}`}
-                        x={x0}
-                        y={ySc(bin.length)}
-                        width={bw}
-                        height={bh}
-                        fill={isOverLimit ? '#D63A2F' : '#B0B7BC'}
-                        opacity={0.85}
-                      />
-                    );
-                  })}
-
-                  {/* Median Line */}
-                  <line x1={medX} x2={medX} y1={0} y2={h} stroke="#5F6B73" strokeWidth={1.5} strokeDasharray="3 2" />
-                  <text x={medX} y={-2} textAnchor="middle" className="text-[9px] font-mono fill-muted">
-                    Median: {median168h.toFixed(1)} µA
-                  </text>
-
-                  {/* Static Limit Line */}
-                  {limitX <= w && (
+                <g transform="translate(10, 8)">
+                  {stats.bins.map((b, i) => (
+                    <rect key={i} x={x(b.x0 || 0)} y={y(b.length)} width={Math.max(1, x(b.x1 || 0) - x(b.x0 || 0) - 1)} height={h - y(b.length)}
+                      fill={staticLimit != null && (b.x0 || 0) >= staticLimit ? '#D63A2F' : '#B0B7BC'} opacity={0.85} />
+                  ))}
+                  <line x1={x(stats.med)} x2={x(stats.med)} y1={0} y2={h} stroke="#5F6B73" strokeWidth={1.5} strokeDasharray="3 2" />
+                  <text x={x(stats.med)} y={-2} textAnchor="middle" className="text-[9px] font-mono fill-muted">median {stats.med.toFixed(1)}</text>
+                  {staticLimit != null && (
                     <>
-                      <line x1={limitX} x2={limitX} y1={0} y2={h} stroke="#D63A2F" strokeWidth={1.5} strokeDasharray="4 2" />
-                      <text x={limitX} y={-2} textAnchor="middle" className="text-[9px] font-mono fill-reject font-bold">
-                        Static limit: {staticLimit} µA
-                      </text>
+                      <line x1={x(staticLimit)} x2={x(staticLimit)} y1={0} y2={h} stroke="#D63A2F" strokeWidth={1.5} strokeDasharray="4 2" />
+                      <text x={x(staticLimit)} y={-2} textAnchor="middle" className="text-[9px] font-mono fill-reject font-bold">datasheet limit {staticLimit} µA</text>
                     </>
                   )}
                 </g>
@@ -202,165 +119,63 @@ export const LotOverviewScreen: React.FC = () => {
             })()}
           </svg>
         </div>
-
-        {/* Summary Plain Text Counts (Strictly NO KPI cards!) */}
-        <div className="w-[260px] pl-6 border-l border-hairline space-y-2 text-xs font-sans">
-          <div>
-            <span className="text-muted">Parts above 20 µA:</span>
-            <div className="font-mono text-main font-semibold">
-              {partsAboveWarn} ({((partsAboveWarn / (parts.length || 1)) * 100).toFixed(1)}%)
-            </div>
+        {stats && (
+          <div className="w-[270px] pl-6 border-l border-hairline space-y-1.5 text-xs font-sans">
+            <div><span className="text-muted">Above datasheet limit (0h/24h): </span><span className="font-mono text-reject font-bold">{stats.aboveLimit} ({pct(stats.aboveLimit)})</span></div>
+            <div><span className="text-muted">Flagged (model or inspector): </span><span className="font-mono text-reject font-bold">{stats.flagged} ({pct(stats.flagged)})</span></div>
+            <div><span className="text-muted">Decided by inspector: </span><span className="font-mono text-main">{stats.byInspector}</span></div>
+            <div><span className="text-muted">Insufficient data: </span><span className="font-mono text-main">{stats.insufficient}</span></div>
           </div>
-          <div>
-            <span className="text-muted">Parts above 50 µA:</span>
-            <div className="font-mono text-reject font-bold">
-              {partsAboveLimit} ({((partsAboveLimit / (parts.length || 1)) * 100).toFixed(1)}%)
-            </div>
-          </div>
-          <div>
-            <span className="text-muted">Flagged by model:</span>
-            <div className="font-mono text-reject font-bold">
-              {flaggedCount} ({((flaggedCount / (parts.length || 1)) * 100).toFixed(1)}%)
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* 3. Filter and Search Bar */}
-      <div className="h-[36px] border-b border-hairline px-4 flex items-center justify-between bg-panel shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="relative flex items-center">
-            <Search size={12} className="absolute left-2 text-muted" />
-            <input
-              type="text"
-              placeholder="Filter by part, reason, status... (/)"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="bg-workspace border border-hairline pl-7 pr-3 py-0.5 text-xs font-mono text-main placeholder:text-muted focus:outline-none w-[280px]"
-            />
-          </div>
-          <span className="text-muted text-[11px] font-mono">
-            Showing {filteredAndSortedParts.length} of {parts.length} parts
-          </span>
+      <div className="h-[36px] border-b border-hairline px-4 flex items-center gap-2 bg-panel shrink-0">
+        <div className="relative flex items-center">
+          <Search size={12} className="absolute left-2 text-muted" />
+          <input type="text" data-search placeholder="Filter by part, reason, status… (/)" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+            className="bg-workspace border border-hairline pl-7 pr-3 py-0.5 text-xs font-mono text-main placeholder:text-muted focus:outline-none w-[280px]" />
         </div>
+        <span className="text-muted text-[11px] font-mono">Showing {rows.length} of {parts.length} parts</span>
       </div>
 
-      {/* 4. Table Header (Sticky) */}
-      <div className="h-[28px] bg-panel border-b border-hairline grid grid-cols-12 items-center px-4 text-[11px] font-mono text-muted uppercase shrink-0 select-none">
-        <div
-          onClick={() => handleSort('partId')}
-          className="col-span-2 flex items-center gap-1 cursor-pointer hover:text-main"
-        >
-          <span>Part ID</span>
-          <ArrowUpDown size={10} />
-        </div>
-        <div
-          onClick={() => handleSort('val0')}
-          className="col-span-1 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-main"
-        >
-          <span>0h (µA)</span>
-        </div>
-        <div
-          onClick={() => handleSort('val24')}
-          className="col-span-1 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-main"
-        >
-          <span>24h (µA)</span>
-        </div>
-        <div
-          onClick={() => handleSort('val96')}
-          className="col-span-1 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-main"
-        >
-          <span>96h (µA)</span>
-        </div>
-        <div
-          onClick={() => handleSort('val168')}
-          className="col-span-1 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-main"
-        >
-          <span>168h (µA)</span>
-        </div>
-        <div
-          onClick={() => handleSort('delta')}
-          className="col-span-1 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-main"
-        >
-          <span>Δ (µA/h)</span>
-        </div>
-        <div
-          onClick={() => handleSort('status')}
-          className="col-span-2 pl-4 flex items-center gap-1 cursor-pointer hover:text-main"
-        >
-          <span>Status</span>
-          <ArrowUpDown size={10} />
-        </div>
-        <div className="col-span-3">
-          <span>Reason</span>
-        </div>
+      <div className="h-[28px] bg-panel border-b border-hairline grid grid-cols-12 items-center px-4 text-[11px] font-mono text-muted shrink-0 select-none">
+        {header('Part ID', 'partId', 'col-span-2', false)}
+        {header('0h µA', 'val0', 'col-span-1')}
+        {header('24h µA', 'val24', 'col-span-1')}
+        {header('96h µA', 'val96', 'col-span-1')}
+        {header('168h µA', 'val168', 'col-span-1')}
+        {header('Pred. µA/h', 'rate', 'col-span-1')}
+        <div className="col-span-2 pl-4">{header('Status', 'status', '', false)}</div>
+        <div className="col-span-3">Reason</div>
       </div>
 
-      {/* 5. Virtualized Table Body */}
       <div ref={parentRef} className="flex-1 overflow-y-auto font-mono text-xs select-none">
-        <div
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            width: '100%',
-            position: 'relative',
-          }}
-        >
-          {rowVirtualizer.getVirtualItems().map(virtualRow => {
-            const part = filteredAndSortedParts[virtualRow.index];
+        <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+          {rowVirtualizer.getVirtualItems().map(vr => {
+            const part = rows[vr.index];
             if (!part) return null;
-            const isSelected = part.partId === selectedPartId;
-
+            const r = rate(part.partId);
             return (
-              <div
-                key={part.partId}
-                onClick={() => selectPart(part.partId)}
-                onDoubleClick={() => {
-                  selectPart(part.partId);
-                  navigate('/drift');
-                }}
-                title="Click to select, double-click to view drift trajectory"
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-                className={`grid grid-cols-12 items-center px-4 border-b border-hairline/40 cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-panel border-l-2 border-l-reject font-semibold text-main'
-                    : 'hover:bg-panel/50 text-main'
-                }`}
-              >
-                <span className={`col-span-2 truncate ${part.isFlagged ? 'text-reject font-bold' : ''}`}>
-                  {part.partId}
-                </span>
-                <span className="col-span-1 text-right tabular-nums text-muted">
-                  {(part.readings[0] || 0).toFixed(2)}
-                </span>
-                <span className="col-span-1 text-right tabular-nums text-muted">
-                  {(part.readings[24] || 0).toFixed(2)}
-                </span>
-                <span className="col-span-1 text-right tabular-nums text-muted">
-                  {(part.readings[96] || 0).toFixed(2)}
-                </span>
-                <span className={`col-span-1 text-right tabular-nums ${part.isFlagged ? 'text-reject font-bold' : ''}`}>
-                  {(part.readings[168] || 0).toFixed(2)}
-                </span>
-                <span className={`col-span-1 text-right tabular-nums ${part.slope > 0.15 ? 'text-reject' : 'text-muted'}`}>
-                  {part.slope.toFixed(3)}
-                </span>
-                <div className="col-span-2 pl-4">
-                  <StatusMarker status={part.status} />
-                </div>
-                <span className="col-span-3 truncate text-muted text-[11px] font-sans">
-                  {part.reason}
-                </span>
+              <div key={part.id} onClick={() => selectPart(part.partId)} onDoubleClick={() => { selectPart(part.partId); navigate('/components'); }}
+                title="Click to select, double-click for component detail"
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: `${vr.size}px`, transform: `translateY(${vr.start}px)` }}
+                className={`grid grid-cols-12 items-center px-4 border-b border-hairline/40 cursor-pointer ${part.partId === selectedPartId ? 'bg-panel border-l-2 border-l-reject font-semibold' : 'hover:bg-panel/50'} text-main`}>
+                <span className={`col-span-2 truncate ${part.isFlagged ? 'text-reject font-bold' : ''}`}>{part.partId}</span>
+                {[0, 24, 96, 168].map(t => (
+                  <span key={t} className="col-span-1 text-right tabular-nums text-muted">
+                    {fmt(part.readings[t])}{part.allReadings.find(x => x.intervalHours === t)?.imputed.length ? '*' : ''}
+                  </span>
+                ))}
+                <span className="col-span-1 text-right tabular-nums text-muted">{fmt(r, 4)}</span>
+                <div className="col-span-2 pl-4"><StatusMarker status={part.status} /></div>
+                <span className="col-span-3 truncate text-muted text-[11px] font-sans">{part.reason}</span>
               </div>
             );
           })}
         </div>
+      </div>
+      <div className="h-[20px] px-4 text-[10px] text-muted font-sans border-t border-hairline bg-panel flex items-center shrink-0">
+        * value imputed at ingest (display only; never used by a model or metric). 96h/168h are shown for traceability; decisions use 0h/24h.
       </div>
     </div>
   );
