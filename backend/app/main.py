@@ -4,8 +4,8 @@ Features CORS middleware, API v1 routing, health checks, and lifecycle managemen
 """
 
 import sys
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 # Automatically bootstrap project root into sys.path to allow execution from either backend/ or repo root
 _project_root = str(Path(__file__).resolve().parent.parent.parent)

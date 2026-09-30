@@ -46,7 +46,9 @@ COPY alembic.ini .
 COPY backend ./backend
 COPY data_engine ./data_engine
 COPY ml_engine ./ml_engine
+COPY evaluation ./evaluation
 COPY scripts ./scripts
+RUN mkdir -p /app/artifacts /app/reports
 
 # Grant permissions to non-root user
 RUN chown -R appuser:appgroup /app

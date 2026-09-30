@@ -15,7 +15,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 if sys.platform == "win32":
     try:
@@ -31,16 +31,16 @@ if str(PROJECT_ROOT) not in sys.path:
 import pandas as pd  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
-from sqlalchemy import delete, insert, select  # noqa: E402
+from sqlalchemy import delete, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from backend.app.core.config import settings  # noqa: E402
 from backend.app.core.database import SessionLocal  # noqa: E402
 from backend.app.models import BurnInReading, Component, Lot, ModelPrediction, ScreeningRun  # noqa: E402
+from backend.app.services.screening_service import audit, prediction_record, write_predictions  # noqa: E402
 from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
-from backend.app.services.screening_service import audit, prediction_record, write_predictions  # noqa: E402
 from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E402
 
 console = Console(highlight=False)
@@ -62,7 +62,7 @@ def _finite(x):
 def _jsonable(obj):
     if isinstance(obj, dict):
         return {k: _jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, list | tuple):
         return [_jsonable(v) for v in obj]
     if isinstance(obj, float) and obj in (float("inf"), float("-inf")):
         return None

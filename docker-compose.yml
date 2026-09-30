@@ -21,24 +21,6 @@ services:
     networks:
       - burnin-network
 
-  burnin_redis:
-    image: redis:7-alpine
-    container_name: burnin_redis
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
-    networks:
-      - burnin-network
-
   burnin_backend:
     build:
       context: .
@@ -53,14 +35,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-burnin_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-burnin_secure_pass_2026}
       POSTGRES_DB: ${POSTGRES_DB:-burn_in_db}
-      REDIS_HOST: burnin_redis
-      REDIS_PORT: 6379
       APP_ENV: production
       DEBUG: "false"
     depends_on:
       burnin_postgres:
-        condition: service_healthy
-      burnin_redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
@@ -76,30 +54,21 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        # The browser calls the API directly, so this must be reachable from the user's machine.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
     container_name: burnin_frontend
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       burnin_backend:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
     networks:
       - burnin-network
 
 volumes:
   postgres_data:
     name: burnin_postgres_data
-  redis_data:
-    name: burnin_redis_data
 
 networks:
   burnin-network:

@@ -7,18 +7,20 @@ import enum
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional
+
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Enum as SAEnum,
     Float,
     ForeignKey,
     Index,
     Integer,
-    String,
     Text,
     UniqueConstraint,
     func,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship

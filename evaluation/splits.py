@@ -27,7 +27,7 @@ def lot_group_kfold(lot_ids: Iterable, n_splits: int = 5, seed: int = 42) -> Lis
     Deterministic GroupKFold over lots: lots are shuffled with `seed` and dealt round-robin
     into `n_splits` folds. Every lot is in exactly one test fold.
     """
-    lots = sorted({str(l) for l in lot_ids})
+    lots = sorted({str(lot) for lot in lot_ids})
     if n_splits < 2 or n_splits > len(lots):
         raise ValueError(f"n_splits={n_splits} invalid for {len(lots)} lots")
     order = np.random.default_rng(seed).permutation(len(lots))
@@ -43,7 +43,7 @@ def lot_group_kfold(lot_ids: Iterable, n_splits: int = 5, seed: int = 42) -> Lis
 
 def lot_holdout_split(lot_ids: Iterable, test_fraction: float = 0.3, seed: int = 42) -> LotFold:
     """Single lot-level holdout (used when one fixed test set is wanted)."""
-    lots = sorted({str(l) for l in lot_ids})
+    lots = sorted({str(lot) for lot in lot_ids})
     n_test = max(1, int(round(len(lots) * test_fraction)))
     order = np.random.default_rng(seed).permutation(len(lots))
     test = frozenset(lots[i] for i in order[:n_test])

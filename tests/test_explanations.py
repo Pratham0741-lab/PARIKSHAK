@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import pytest
 
 from data_engine.generator import BurnInSyntheticGenerator
@@ -44,7 +43,7 @@ def test_named_top_contributors_are_the_largest_absolute_contributions(explained
         real = [c for c in e["module_b"]["contributions"] if c["feature"] != "__other__"]
         top_b = max(real, key=lambda c: abs(c["value"]))["feature"]
         assert e["module_b"]["top_contributor"] == top_b
-        assert f"Largest Module B contributor to the" in e["summary"] and top_b in e["summary"]
+        assert "Largest Module B contributor to the" in e["summary"] and top_b in e["summary"]
         positive = [c for c in e["module_a"]["contributions"] if c["contribution"] > 0]
         if positive:
             top_a = max(positive, key=lambda c: c["contribution"])["parameter"]
@@ -66,7 +65,7 @@ def test_treeshap_contributions_reconstruct_the_forecast(explained):
     model, test, preds, _ = explained
     feats = model.module_b.features(early_readings_only(test))
     contribs = model.module_b.contributions(feats, top_k=len(model.module_b.feature_columns_))
-    for (cid, f), c in zip(feats.iterrows(), contribs):
+    for (cid, f), c in zip(feats.iterrows(), contribs, strict=False):
         for p in PARAMETERS:
             total = c[p]["total"]
             assert total == pytest.approx(sum(x["value"] for x in c[p]["top"]) + c[p]["other"] + c[p]["bias"])

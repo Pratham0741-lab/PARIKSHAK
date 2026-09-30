@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -340,7 +340,7 @@ class BurnInSyntheticGenerator:
         """
         profiles = self._create_lot_profiles()
         rows: List[Dict[str, Any]] = []
-        base_timestamp = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+        base_timestamp = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
 
         for profile in profiles:
             # 1. Sample preliminary nominal components to calculate empirical lot median and MAD
@@ -404,7 +404,7 @@ class BurnInSyntheticGenerator:
         components_records: List[Dict[str, Any]] = []
         readings_records: List[Dict[str, Any]] = []
 
-        base_timestamp = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+        base_timestamp = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=7)
 
         for profile in profiles:
             lots_records.append(

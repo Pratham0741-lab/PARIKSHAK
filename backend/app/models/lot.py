@@ -6,7 +6,9 @@ import enum
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import DateTime, Enum as SAEnum, String, func
+
+from sqlalchemy import DateTime, String, func
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

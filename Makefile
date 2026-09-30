@@ -1,13 +1,14 @@
-.PHONY: build up down test seed report dev eval help
+.PHONY: build up down test seed report dev eval lint help
 
 help:
 	@echo "ISRO SIH26170 Operational Automation Targets:"
-	@echo "  make build   - Build all multi-stage Docker images (standalone Next.js & FastAPI)"
+	@echo "  make build   - Build Docker images (FastAPI backend, Vite+nginx frontend)"
 	@echo "  make up      - Launch the complete containerized stack in background"
 	@echo "  make down    - Stop and tear down container services"
 	@echo "  make test    - Run the Python test suite"
 	@echo "  make dev     - Run backend (:8000) and frontend (:8080) together for local development"
 	@echo "  make eval    - Held-out evaluation: regenerate SIH26170_EVALUATION_REPORT.md"
+	@echo "  make lint    - ruff (Python) and eslint (frontend)"
 	@echo "  make seed    - Initialize DB schema, synthetic burn-in parts & predictions"
 	@echo "  make report  - Same as make eval (kept for compatibility)"
 
@@ -34,3 +35,7 @@ dev:
 
 eval:
 	python -m evaluation.run
+
+lint:
+	python -m ruff check .
+	cd frontend && npm run lint

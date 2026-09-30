@@ -29,8 +29,8 @@ from data_engine.generator import BurnInSyntheticGenerator  # noqa: E402
 from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
-from ml_engine.module_b_drift import linear_extrapolation_baseline  # noqa: E402
 from ml_engine.features import PARAMETERS  # noqa: E402
+from ml_engine.module_b_drift import linear_extrapolation_baseline  # noqa: E402
 from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E402
 
 REPORT_JSON = ROOT / "reports" / "evaluation_results.json"
@@ -161,7 +161,6 @@ def _pct(x: float) -> str:
 def render_markdown(res: Dict[str, Any]) -> str:
     cfg, split, ho = res["config"], res["split"], res["held_out"]
     tr = res.get("train_optimistic")
-    d = ho["detection"]
     lines = [
         "# SIH26170 Evaluation Report (held-out lots)",
         "",

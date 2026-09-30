@@ -106,7 +106,7 @@ class DriftPredictor:
     def features(self, df: pd.DataFrame) -> pd.DataFrame:
         return build_early_features(df, self.feature_set)
 
-    def fit(self, df: pd.DataFrame) -> "DriftPredictor":
+    def fit(self, df: pd.DataFrame) -> DriftPredictor:
         """Trains one regressor per parameter. `df` must contain 0h, 24h and 168h rows."""
         feats = self.features(df)
         targets = extract_targets(df)

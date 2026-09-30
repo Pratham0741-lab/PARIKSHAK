@@ -5,6 +5,7 @@ Burn-In Screening Reading ORM Model for parametric measurements across test inte
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
+
 from sqlalchemy import (
     CheckConstraint,
     DateTime,

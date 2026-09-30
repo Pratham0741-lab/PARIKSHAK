@@ -5,7 +5,9 @@ Component ORM Model for individual semiconductor units.
 import enum
 import uuid
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import Boolean, Enum as SAEnum, ForeignKey, Index, String, UniqueConstraint
+
+from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,8 +15,8 @@ from backend.app.models.base import Base
 
 if TYPE_CHECKING:
     from backend.app.models.lot import Lot
-    from backend.app.models.reading import BurnInReading
     from backend.app.models.prediction import ModelPrediction
+    from backend.app.models.reading import BurnInReading
     from backend.app.models.review import InspectorReview
 
 

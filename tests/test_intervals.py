@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from data_engine.generator import BurnInSyntheticGenerator

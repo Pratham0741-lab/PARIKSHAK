@@ -5,16 +5,17 @@ Reviews API endpoints: QA human inspector review submission and audit log.
 from __future__ import annotations
 
 import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.database import get_async_db
+from backend.app.models.audit import AuditEvent
 from backend.app.models.component import Component
 from backend.app.models.prediction import ScreeningVerdict
-from backend.app.models.audit import AuditEvent
-from backend.app.models.review import InspectorReview, ReviewDisposition
+from backend.app.models.review import InspectorReview
 from backend.app.schemas.review import ReviewActionRequest, ReviewActionResponse
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])

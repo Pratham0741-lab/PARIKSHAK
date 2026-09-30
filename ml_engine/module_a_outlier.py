@@ -102,8 +102,8 @@ class LotOutlierDetector:
         stats: Dict[str, Dict[str, np.ndarray]] = {}
         lot_ids = piv["lot_id"].to_numpy()
         for j, p in enumerate(self.PARAMETERS):
-            med = np.array([profiles[l][p]["median"] for l in lot_ids])
-            mad = np.array([profiles[l][p]["mad"] for l in lot_ids])
+            med = np.array([profiles[lot][p]["median"] for lot in lot_ids])
+            mad = np.array([profiles[lot][p]["mad"] for lot in lot_ids])
             v0 = piv[f"{p}_0"].to_numpy()
             v24 = piv[f"{p}_24"].to_numpy()
             Z[:, j] = ((v0 + v24) / 2.0 - med) / mad
@@ -111,7 +111,7 @@ class LotOutlierDetector:
             stats[p] = {"value": (v0 + v24) / 2.0, "median": med, "mad": mad}
         return Z, Z0, stats
 
-    def fit(self, df: pd.DataFrame) -> "LotOutlierDetector":
+    def fit(self, df: pd.DataFrame) -> LotOutlierDetector:
         """Fits Ledoit-Wolf covariance and Isolation Forest on lot-normalised (MAD-unit) training data."""
         piv = self._extract_early_features(df)
         Z, _ = self._lot_normalise(piv)

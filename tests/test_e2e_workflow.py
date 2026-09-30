@@ -21,14 +21,13 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
 from backend.app.core.database import SessionLocal
-
-ROOT = Path(__file__).resolve().parent.parent
 from backend.app.main import app
 from backend.app.models.component import Component
 from backend.app.models.lot import Lot
-from backend.app.models.prediction import ModelPrediction, ScreeningVerdict
+from backend.app.models.prediction import ModelPrediction
 from backend.app.models.reading import BurnInReading
-from backend.app.models.review import InspectorReview, ReviewDisposition
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest_asyncio.fixture

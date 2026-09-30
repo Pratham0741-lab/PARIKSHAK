@@ -5,6 +5,7 @@ composite unique constraints, and async sessions.
 """
 
 import uuid
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError

@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from backend.app.models.review import ReviewDisposition
 
 

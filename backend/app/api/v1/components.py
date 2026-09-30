@@ -6,18 +6,18 @@ from __future__ import annotations
 
 import math
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import distinct, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.database import get_async_db
-from backend.app.models.component import Component, GroundTruthLabel
+from backend.app.models.component import Component
 from backend.app.models.lot import Lot
 from backend.app.models.prediction import ModelPrediction, ScreeningVerdict
 from backend.app.models.reading import BurnInReading
-from backend.app.models.review import InspectorReview
 from backend.app.schemas.component import (
     ComponentListItem,
     ComponentProfileResponse,

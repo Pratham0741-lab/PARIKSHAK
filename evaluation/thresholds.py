@@ -122,7 +122,9 @@ def cost_curve(
     out = []
     for t in grid:
         flag = f | other | (s >= t)
-        tp = int((flag & y).sum()); fp = int((flag & ~y).sum()); fn = int((~flag & y).sum())
+        tp = int((flag & y).sum())
+        fp = int((flag & ~y).sum())
+        fn = int((~flag & y).sum())
         rec = tp / (tp + fn) if tp + fn else 0.0
         prec = tp / (tp + fp) if tp + fp else 0.0
         out.append({"threshold": float(t), "weighted_cost": cfg.fn_cost * fn + cfg.fp_cost * fp,

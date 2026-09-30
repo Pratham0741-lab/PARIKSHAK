@@ -43,16 +43,20 @@ def test_raising_fn_cost_never_increases_fns_union(validation_scores):
                                       CostConfig(fn_cost=c, fp_cost=1.0), forced=forced)
         fns.append(res["validation"]["fn"])
         recalls.append(res["validation"]["recall"])
-    assert all(b <= a for a, b in zip(fns, fns[1:])), fns
-    assert all(b >= a for a, b in zip(recalls, recalls[1:])), recalls
+    assert all(b <= a for a, b in zip(fns, fns[1:], strict=False)), fns
+    assert all(b >= a for a, b in zip(recalls, recalls[1:], strict=False)), recalls
     assert fns[-1] < fns[0]  # the cost ratio actually matters on this data
 
 
 def test_fewer_false_negatives_scores_better_at_equal_accuracy():
     y = np.array([1] * 20 + [0] * 180, dtype=bool)
     # Model X: 2 FN, 10 FP. Model Y: 10 FN, 2 FP. Same accuracy (12 errors each).
-    px = y.copy(); px[:2] = False; px[20:30] = True
-    py = y.copy(); py[:10] = False; py[20:22] = True
+    px = y.copy()
+    px[:2] = False
+    px[20:30] = True
+    py = y.copy()
+    py[:10] = False
+    py[20:22] = True
     cfg = CostConfig()
     rx, ry = cost_report(y, px, cfg), cost_report(y, py, cfg)
     assert (rx["fn"], rx["fp"], ry["fn"], ry["fp"]) == (2, 10, 10, 2)
@@ -82,7 +86,7 @@ def test_cost_curve_is_computed_not_assumed(validation_scores):
     thresholds = [p["threshold"] for p in curve]
     assert thresholds == sorted(thresholds)
     # sweeping upward can only lose detections
-    assert all(b["fn"] >= a["fn"] for a, b in zip(curve, curve[1:]))
+    assert all(b["fn"] >= a["fn"] for a, b in zip(curve, curve[1:], strict=False))
     for p in curve:
         assert p["weighted_cost"] == 20 * p["fn"] + 1 * p["fp"]
 
@@ -106,8 +110,8 @@ def test_model_learns_and_persists_thresholds(tmp_path):
 
 
 def test_separate_strategy_keeps_module_b_rule_active(validation_scores):
-    from ml_engine.screening import MODULE_B_TARGET_CLASSES
     from evaluation.thresholds import choose_thresholds
+    from ml_engine.screening import MODULE_B_TARGET_CLASSES
 
     v = validation_scores
     forced = v["observed_static_breach"] | v["predicted_limit_breach"]

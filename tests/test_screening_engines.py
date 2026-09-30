@@ -10,10 +10,10 @@ import pytest
 from sqlalchemy import select
 
 from backend.app.core.database import SessionLocal
-from backend.app.models import Component, ModelPrediction, ScreeningVerdict
+from backend.app.models import ModelPrediction, ScreeningVerdict
 from data_engine.generator import BurnInSyntheticGenerator
-from ml_engine.module_a_outlier import LotOutlierDetector
 from evaluation.splits import lot_holdout_split
+from ml_engine.module_a_outlier import LotOutlierDetector
 from ml_engine.module_b_drift import DriftPredictor, linear_extrapolation_baseline
 from ml_engine.verdict_engine import ScreeningVerdictEngine
 

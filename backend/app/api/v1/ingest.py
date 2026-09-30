@@ -6,7 +6,7 @@ zero-filled), and screens the lot through Modules A and B with the persisted pro
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, status
@@ -43,7 +43,7 @@ def _ingest_sync(req: IngestRequest) -> IngestResponse:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=parsed.summary())
     model = load_model()  # fail before writing anything if there is no trained model
     limits = ScreeningVerdictEngine.datasheet_limits()
-    lot_number = req.lot_number or f"INGEST-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}"
+    lot_number = req.lot_number or f"INGEST-{datetime.now(UTC):%Y%m%d-%H%M%S}"
 
     with SessionLocal() as session:
         if session.scalar(select(Lot.id).where(Lot.lot_number == lot_number)):

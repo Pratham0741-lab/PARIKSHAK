@@ -34,7 +34,7 @@ class CostConfig:
         return asdict(self)
 
     @classmethod
-    def from_settings(cls, **overrides) -> "CostConfig":
+    def from_settings(cls, **overrides) -> CostConfig:
         from backend.app.core.config import settings
 
         base = {"fn_cost": settings.FN_COST, "fp_cost": settings.FP_COST, "recall_target": settings.RECALL_TARGET}

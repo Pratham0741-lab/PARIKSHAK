@@ -9,16 +9,15 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
-from backend.app.main import app
-
 
 # ==============================================================================
 # Integration Tests: FastAPI REST Endpoints (httpx.AsyncClient)
 # ==============================================================================
-
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
+from backend.app.main import app
+
 
 @pytest_asyncio.fixture
 async def async_client():

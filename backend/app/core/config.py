@@ -5,7 +5,8 @@ Loads environment variables from .env using Pydantic Settings.
 
 from functools import lru_cache
 from typing import Optional
-from pydantic import Field, computed_field
+
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -112,7 +113,7 @@ class Settings(BaseSettings):
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Cached accessor for application settings."""
     return Settings()

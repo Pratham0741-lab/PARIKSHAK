@@ -133,7 +133,7 @@ class ScreeningModel:
             val["label"] = val["component_id"].map(labels).astype(str)
         return val
 
-    def fit(self, train_df: pd.DataFrame) -> "ScreeningModel":
+    def fit(self, train_df: pd.DataFrame) -> ScreeningModel:
         self.training_component_ids_ = frozenset(train_df["component_id"].astype(str).unique())
         self.training_lot_ids_ = frozenset(train_df["lot_id"].astype(str).unique())
 
@@ -172,7 +172,7 @@ class ScreeningModel:
         return {"calibrated": True, "method": "CQR (LightGBM 5%/95% quantiles + split-conformal on inner OOF)",
                 "coverage_target": INTERVAL_COVERAGE, "q": q, "n_calibration": n_cal}
 
-    def rethreshold(self, strategy: str) -> "ScreeningModel":
+    def rethreshold(self, strategy: str) -> ScreeningModel:
         """Copy of this model with thresholds re-chosen from the stored validation scores (no refit)."""
         import copy
 
@@ -208,7 +208,7 @@ class ScreeningModel:
         out = self.verdict_engine.evaluate_dataframe(scored, ta, tb)
         out["screen_flag"] = out["verdict"].isin(["REVIEW", "REJECT"])
         feats = self.module_b.features(early)
-        contrib = dict(zip(feats.index.astype(str), self.module_b.contributions(feats)))
+        contrib = dict(zip(feats.index.astype(str), self.module_b.contributions(feats), strict=False))
         out["b_contributions"] = out["component_id"].astype(str).map(contrib)
         return out
 
@@ -225,7 +225,7 @@ class ScreeningModel:
         path.with_suffix(".json").write_text(json.dumps(meta, indent=2, default=str), encoding="utf-8")
 
     @staticmethod
-    def load(path: Path) -> "ScreeningModel":
+    def load(path: Path) -> ScreeningModel:
         return joblib.load(Path(path))
 
 

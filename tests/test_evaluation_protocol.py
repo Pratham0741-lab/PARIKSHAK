@@ -72,7 +72,7 @@ def test_no_test_lot_part_ever_reaches_training(small_dataset):
     fits = [e for e in SpyModel.log if e[0] == "fit"]
     predicts = [e for e in SpyModel.log if e[0] == "predict"]
     assert len(fits) == len(predicts) == len(res.folds) == 3
-    for rec, (_, fit_ids, fit_lots, _), (_, pred_ids, pred_lots, pred_df) in zip(res.folds, fits, predicts):
+    for rec, (_, fit_ids, fit_lots, _), (_, _pred_ids, pred_lots, pred_df) in zip(res.folds, fits, predicts, strict=False):
         # The model was trained on no part and no lot from the test fold.
         assert not (fit_ids & rec.test_component_ids)
         assert not (fit_lots & rec.test_lots)
@@ -137,6 +137,7 @@ def test_score_cli_uses_separate_truth_file(small_dataset, tmp_path, capsys):
 
 def test_production_module_b_config_comes_from_the_nested_study():
     import json as _json
+
     from ml_engine.module_b_drift import CONFIG_PATH
 
     cfg = _json.loads(CONFIG_PATH.read_text())
