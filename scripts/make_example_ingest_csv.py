@@ -4,7 +4,7 @@ Writes frontend/public/example_ingest.csv: one nominal lot from the SEEDED gener
 format, plus rows that exercise the ingest rules (a latent-defect part that stays under the 50 uA
 static limit, a part with a missing 24h cell, a non-numeric cell and a duplicate part ID).
 
-    python scripts/make_example_ingest_csv.py [--seed 2024] [--parts 60]
+    python scripts/make_example_ingest_csv.py [--seed 2002] [--parts 60]
 """
 
 import argparse
@@ -21,7 +21,7 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "frontend", "public", "examp
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seed", type=int, default=2024)
+    ap.add_argument("--seed", type=int, default=2002)  # nominal lot with a ~10 uA leakage median
     ap.add_argument("--parts", type=int, default=60)
     args = ap.parse_args()
 
@@ -35,10 +35,10 @@ def main() -> int:
     for sn, r in wide.iterrows():
         rows.append(",".join([sn.replace("LOT-2026-", "EX-")] + [f"{r[(p, h)]:.4f}" for h in (0, 24, 96, 168) for p in PARAMS]))
 
-    # Latent defect: ~2x the lot's leakage at 0h and drifting, but never above the 50 uA datasheet limit.
+    # Latent defect (the PS scenario): ~30 uA in a ~10 uA lot, drifting, never above the 50 uA datasheet limit.
     med0 = float(wide[("leakage_current_ua", 0)].median())
     iddq, delay = float(wide[("iddq_ma", 0)].median()), float(wide[("propagation_delay_ns", 0)].median())
-    latent = [2.0 * med0, iddq, delay, 2.4 * med0, iddq * 1.02, delay, 2.8 * med0, iddq * 1.04, delay, 48.5, iddq * 1.06, delay]
+    latent = [30.0, iddq, delay, 36.0, iddq * 1.02, delay, 42.0, iddq * 1.04, delay, 48.5, iddq * 1.06, delay]
     rows.append(",".join(["EX-LATENT-001"] + [f"{v:.4f}" for v in latent]))
     gap = [f"{v:.4f}" for v in latent]
     gap[3] = ""  # missing leakage 24h -> imputed with lot median, part marked insufficient data
