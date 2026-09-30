@@ -90,6 +90,19 @@ lot median), Module B's TreeSHAP contributions (LightGBM `pred_contrib`), the sa
 derivation, the prediction interval and the static-limit status, rendered into a plain-language
 justification (`ml_engine/explain.py`, `GET /api/v1/components/{id}/explain`).
 
+**Judge mode** (UI screen "Judge", `/api/v1/judge/*`, `ml_engine/judge.py`):
+1. Train on an uploaded file with 168h readings (`POST /judge/train`, background job). Labels are
+   optional; if present they are used only to choose thresholds on out-of-fold predictions. Without
+   labels, the labels-free rule LFR-1 (`evaluation/rules.py`: static limit, lot-relative drift or
+   168h outlier at the fixed Iglewicz-Hoaglin cut-off 3.5) stands in. The UI shows "Trained on
+   <file>, <n> parts, <k> lots", the data sha256 and a lot-grouped out-of-fold estimate. For a file
+   with fewer than 3 lots the estimate uses a within-file split labelled "single-lot, less reliable".
+2. Predict from 0h/24h (`POST /judge/predict`; 96h/168h are ignored). Download `preds.csv` with
+   the columns Part_ID, Predicted_168h, PI_low, PI_high, Anomaly_score, Flag, Reason.
+3. Score against a ground-truth file (`POST /judge/score`). The panel prints the command that reproduces it:
+   `python -m evaluation.score --predictions preds.csv --truth truth.csv`.
+Example files: `python scripts/make_judge_files.py` writes `examples/judge/{train,test,truth}.csv`.
+
 **QA workflow.** Every disposition requires an inspector ID and a written justification
 (`POST /api/v1/reviews/{id}/action`) and is written to the audit log (`GET /api/v1/audit`).
 

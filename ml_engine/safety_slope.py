@@ -53,6 +53,9 @@ def drift_rates(preds: pd.DataFrame, v0: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame({"component_id": preds["component_id"].to_numpy(), "lot_id": preds["lot_id"].to_numpy()})
     v0i = v0.set_index("component_id")
     for p in PARAMETERS:
+        if p not in v0i.columns or preds[PRED_COLUMN[p]].isna().all():
+            out[f"rate_{p}"] = np.nan  # parameter not in the data: no rate, no safety slope
+            continue
         start = v0i.loc[preds["component_id"], p].to_numpy(float)
         out[f"rate_{p}"] = (preds[PRED_COLUMN[p]].to_numpy(float) - start) / HOURS
     return out
@@ -62,6 +65,9 @@ def spread_floors(rates: pd.DataFrame) -> Dict[str, float]:
     """Half the median per-lot scaled MAD of each parameter's rate (computed on training lots)."""
     floors = {}
     for p in PARAMETERS:
+        if rates[f"rate_{p}"].isna().all():
+            floors[p] = float("nan")
+            continue
         spreads = [_scaled_mad(g[f"rate_{p}"].to_numpy()) for _, g in rates.groupby("lot_id")]
         floors[p] = max(FLOOR_FRACTION * float(np.median(spreads)) if spreads else 0.0, 1e-9)
     return floors
@@ -70,14 +76,19 @@ def spread_floors(rates: pd.DataFrame) -> Dict[str, float]:
 def lot_statistics(rates: pd.DataFrame, floors: Dict[str, float]) -> pd.DataFrame:
     """Per-part lot median / spread of each parameter's predicted rate (from the part's own lot)."""
     out = rates.copy()
+    present = [p for p in PARAMETERS if not out[f"rate_{p}"].isna().all() and np.isfinite(floors.get(p, np.nan))]
     for p in PARAMETERS:
+        if p not in present:
+            for c in ("lot_median", "lot_spread", "z"):
+                out[f"{c}_{p}"] = np.nan
+            continue
         col = f"rate_{p}"
         med = out.groupby("lot_id")[col].transform("median")
         mad = out.groupby("lot_id")[col].transform(lambda s: _scaled_mad(s.to_numpy()))
         out[f"lot_median_{p}"] = med
         out[f"lot_spread_{p}"] = np.maximum(mad, floors[p])
         out[f"z_{p}"] = (out[col] - med) / out[f"lot_spread_{p}"]
-    zcols = [f"z_{p}" for p in PARAMETERS]
+    zcols = [f"z_{p}" for p in present]
     out["module_b_score"] = out[zcols].max(axis=1)
     out["module_b_driver"] = out[zcols].idxmax(axis=1).str.replace("z_", "", regex=False)
     return out

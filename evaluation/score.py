@@ -7,6 +7,12 @@ Score predictions against separately-held ground truth.
 and optionally baseline_{param}_168h. `truth.csv` needs: component_id, ground_truth_flag,
 optionally ground_truth_label and true_{param}_168h. Components are joined on component_id;
 parts without ground truth (e.g. ingested lots) are excluded and counted.
+
+Judge-mode export (detected by a Part_ID column: Part_ID, Predicted_168h, PI_low, PI_high,
+Anomaly_score, Flag, Reason) is scored against a raw burn-in file with 168h readings (the same
+formats /judge/train accepts). Ground truth is the file's labels if it has them, else the labels-free
+rule LFR-1 (evaluation/rules.py). The /judge/score endpoint calls `score_judge_files` on the same
+bytes, so this CLI reproduces the UI's numbers exactly.
 """
 
 from __future__ import annotations
@@ -104,6 +110,88 @@ def score(predictions: pd.DataFrame, truth: pd.DataFrame, cost: CostConfig | Non
     return result
 
 
+def score_export(export: pd.DataFrame, truth: pd.DataFrame, primary: str, cost: CostConfig) -> Dict[str, Any]:
+    """Judge-mode metrics: detection on Flag, MAE/RMSE and interval coverage on Predicted_168h vs the
+    primary parameter's true 168h value. `truth` is indexed by Part_ID (see ml_engine.judge.truth_frame)."""
+    ex = export.copy()
+    ex["Part_ID"] = ex["Part_ID"].astype(str)
+    ex = ex.set_index("Part_ID")
+    tr = truth.copy()
+    tr.index = tr.index.astype(str)
+    common = ex.index.intersection(tr.index)
+    y_true = tr.loc[common, "ground_truth_flag"].astype(bool).to_numpy()
+    y_pred = ex.loc[common, "Flag"].astype(int).astype(bool).to_numpy()
+    det = cost_report(y_true, y_pred, cost)
+    n_def, n_ok = int(y_true.sum()), int(len(y_true) - y_true.sum())
+    t = tr.loc[common, f"true_{primary}_168h"].astype(float)
+    pr = ex.loc[common, "Predicted_168h"].astype(float)
+    lo, hi = ex.loc[common, "PI_low"].astype(float), ex.loc[common, "PI_high"].astype(float)
+    ok = t.notna() & lo.notna() & hi.notna()
+    per_label = {}
+    if "ground_truth_label" in tr.columns:
+        lab = tr.loc[common, "ground_truth_label"].astype(str)
+        for name, idx in lab.groupby(lab).groups.items():
+            per_label[str(name)] = {"n": int(len(idx)), "flagged_rate": float(ex.loc[idx, "Flag"].astype(int).mean())}
+    return {
+        "n_predictions": int(len(ex)),
+        "n_scored": int(len(common)),
+        "n_excluded_no_truth": int(len(ex) - len(common)),
+        "primary_parameter": primary,
+        "detection": det,
+        "confusion_matrix": {"tp": det["tp"], "fn": det["fn"], "fp": det["fp"], "tn": det["tn"]},
+        "trivial_policies": {
+            "flag_all_parts": {"weighted_cost": cost.fp_cost * n_ok, "recall": 1.0 if n_def else 0.0},
+            "flag_no_parts": {"weighted_cost": cost.fn_cost * n_def, "recall": 0.0},
+        },
+        "regression": regression_metrics(t, pr),
+        "interval": {"n": int(ok.sum()), "coverage": float(((t[ok] >= lo[ok]) & (t[ok] <= hi[ok])).mean()) if ok.any() else float("nan"),
+                     "mean_width": float((hi[ok] - lo[ok]).mean()) if ok.any() else float("nan")},
+        "per_label": per_label,
+    }
+
+
+def judge_truth_from_text(truth_text: str, limits: Dict[str, float] | None = None):
+    """(truth frame, parameters, truth source) from a raw burn-in file with 168h readings."""
+    from data_engine.tabular import read_table
+    from evaluation.rules import RULE_ID
+    from ml_engine.judge import training_labels, truth_frame
+
+    table = read_table(truth_text)
+    if not table.has_168h:
+        raise ValueError("the truth file has no 168h readings")
+    df = table.df.drop(columns=["insufficient_data"])
+    labelled, source = training_labels(df, table.params, table.has_labels, limits)
+    source = "file labels" if table.has_labels else f"labels-free rule {RULE_ID}"
+    return truth_frame(df, table.params, labels_df=labelled), table.params, source
+
+
+def score_judge_files(predictions_text: str, truth_text: str, cost: CostConfig,
+                      parameter: str | None = None, static_limit: float | None = None) -> Dict[str, Any]:
+    import io
+
+    from ml_engine.judge import primary_parameter
+
+    export = pd.read_csv(io.StringIO(predictions_text), dtype={"Part_ID": str})
+    truth, params, source = judge_truth_from_text(truth_text)
+    primary = primary_parameter(params, parameter)
+    if static_limit:
+        truth, _, source = judge_truth_from_text(truth_text, {primary: static_limit})
+    res = score_export(export, truth, primary, cost)
+    res["truth_source"] = source
+    return res
+
+
+def _print_judge(res: Dict[str, Any], cfg: CostConfig) -> None:
+    d = res["detection"]
+    print(f"scored parts: {res['n_scored']} (excluded without truth: {res['n_excluded_no_truth']}); truth: {res['truth_source']}")
+    print(f"TP={d['tp']} FN={d['fn']} FP={d['fp']} TN={d['tn']}  recall={d['recall']:.4f}  precision={d['precision']:.4f}  F2={d['f2']:.4f}")
+    print(f"weighted cost={d['weighted_cost']:.1f} (FN_COST={cfg.fn_cost:g}, FP_COST={cfg.fp_cost:g}); "
+          f"flag-all cost={res['trivial_policies']['flag_all_parts']['weighted_cost']:.1f}")
+    r = res["regression"]
+    print(f"{res['primary_parameter']}: MAE={r['mae']:.4f} RMSE={r['rmse']:.4f}  "
+          f"PI coverage={res['interval']['coverage']:.4f} (n={res['interval']['n']})")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--predictions", required=True)
@@ -111,9 +199,21 @@ def main(argv=None) -> int:
     ap.add_argument("--json", help="write full metrics JSON here")
     ap.add_argument("--fn-cost", type=float, default=None, help="cost of a missed defect (default from settings: 20)")
     ap.add_argument("--fp-cost", type=float, default=None, help="cost of a false alarm (default from settings: 1)")
+    ap.add_argument("--parameter", default=None, help="judge mode: parameter of Predicted_168h (default: as in the UI)")
+    ap.add_argument("--static-limit", type=float, default=None, help="judge mode: static limit override for LFR-1")
     args = ap.parse_args(argv)
 
     cfg = CostConfig.from_settings(fn_cost=args.fn_cost, fp_cost=args.fp_cost)
+    with open(args.predictions, encoding="utf-8") as fh:
+        head = fh.readline()
+    if "Part_ID" in head.split(","):
+        with open(args.predictions, encoding="utf-8") as fp, open(args.truth, encoding="utf-8") as ft:
+            res = score_judge_files(fp.read(), ft.read(), cfg, args.parameter, args.static_limit)
+        _print_judge(res, cfg)
+        if args.json:
+            with open(args.json, "w", encoding="utf-8") as fh:
+                json.dump(res, fh, indent=2)
+        return 0
     res = score(pd.read_csv(args.predictions), pd.read_csv(args.truth), cfg)
     d = res["detection"]
     print(f"scored parts: {res['n_scored']} (excluded without truth: {res['n_excluded_no_truth']})")
