@@ -47,6 +47,7 @@ def default_config() -> Dict[str, Any]:
         "fn_cost": settings.FN_COST,
         "fp_cost": settings.FP_COST,
         "recall_target": settings.RECALL_TARGET,
+        "threshold_strategy": settings.THRESHOLD_STRATEGY,
     }
 
 
@@ -54,8 +55,9 @@ def cost_of(cfg: Dict[str, Any]) -> CostConfig:
     return CostConfig(fn_cost=cfg["fn_cost"], fp_cost=cfg["fp_cost"], recall_target=cfg["recall_target"])
 
 
-def model_factory(cfg: Dict[str, Any]):
-    return lambda: ScreeningModel(cost=cost_of(cfg), random_state=cfg["seed"])
+def model_factory(cfg: Dict[str, Any], strategy: str | None = None):
+    strat = strategy or cfg["threshold_strategy"]
+    return lambda: ScreeningModel(cost=cost_of(cfg), random_state=cfg["seed"], threshold_strategy=strat)
 
 
 def generate(cfg: Dict[str, Any]) -> pd.DataFrame:
@@ -112,6 +114,15 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
         },
         "held_out": score(cf.predictions, truth, cost_of(cfg)),
     }
+    # Transparency: the alternative threshold strategy, evaluated with the same held-out protocol.
+    alt = "joint" if cfg["threshold_strategy"] == "separate" else "separate"
+    cf_alt = cross_fit_predict(df, model_factory(cfg, alt), n_splits=cfg["n_splits"], seed=cfg["seed"])
+    alt_score = score(cf_alt.predictions, truth, cost_of(cfg))
+    results["alternative_strategy"] = {
+        "strategy": alt,
+        "detection": {k: alt_score["detection"][k] for k in ("recall", "precision", "f2", "weighted_cost", "fn", "fp")},
+        "module_b_disabled_folds": sum(1 for m in cf_alt.models.values() if m.thresholds_["threshold_b"] == float("inf")),
+    }
     if STUDY_JSON.exists():
         study = json.loads(STUDY_JSON.read_text(encoding="utf-8"))
         results["module_b_selection"] = {
@@ -162,6 +173,8 @@ def render_markdown(res: Dict[str, Any]) -> str:
         + (f"; recall target {cfg['recall_target']:g}" if cfg.get("recall_target") else "; no recall constraint") + ".",
         "- Module A / Module B thresholds are chosen per fold by minimising that cost on an inner lot-grouped",
         "  CV over the fold's training lots only (never on the held-out lots).",
+        f"- Threshold strategy: **{cfg['threshold_strategy']}** (separate = each module's threshold minimises cost on",
+        "  its own, as PS 26170 requires Module B to flag on its own safety-slope rule; decision = union).",
         "",
         "| Fold | Train lots | Test lots | Test parts | Chosen threshold A | Chosen threshold B | Inner-CV recall |",
         "|---:|---:|---:|---:|---:|---:|---:|",
@@ -198,6 +211,18 @@ def render_markdown(res: Dict[str, Any]) -> str:
         det_row("FN (escapes)", "fn"),
         det_row("FP", "fp"),
         det_row("TN", "tn"),
+    ]
+    alt = res.get("alternative_strategy")
+    if alt:
+        ad = alt["detection"]
+        lines += [
+            "",
+            f"Alternative threshold strategy **{alt['strategy']}** under the same held-out protocol: recall "
+            f"{_pct(ad['recall'])}, precision {_pct(ad['precision'])}, F2 {_pct(ad['f2'])}, weighted cost "
+            f"{ad['weighted_cost']:g} (FN {ad['fn']}, FP {ad['fp']}); Module B's slope rule was disabled "
+            f"(k = +inf) in {alt['module_b_disabled_folds']} of {len(split['folds'])} folds.",
+        ]
+    lines += [
         "",
         "### Catch rate by defect class (held-out)",
         "",

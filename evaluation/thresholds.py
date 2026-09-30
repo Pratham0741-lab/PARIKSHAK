@@ -128,3 +128,38 @@ def cost_curve(
         out.append({"threshold": float(t), "weighted_cost": cfg.fn_cost * fn + cfg.fp_cost * fp,
                     "fn": fn, "fp": fp, "recall": rec, "precision": prec, "f2": f_beta(prec, rec)})
     return out
+
+
+def choose_thresholds(
+    score_a, score_b, y_true, cfg: CostConfig, forced=None, strategy: str = "separate", b_scope=None, b_positive=None
+) -> Dict[str, Any]:
+    """
+    strategy="joint":    choose (t_a, t_b) together for the union decision (may switch a module off).
+    strategy="separate": each module's threshold minimises cost for the population it is meant to catch:
+                         Module A against all defects; Module B (drift rule) on parts in `b_scope`
+                         (drift-type defects + normal parts) with `b_positive` marking drift-type defects.
+                         Both use only training-lot labels. The union's validation metrics are reported.
+    """
+    y = np.asarray(y_true, dtype=bool)
+    if strategy == "joint":
+        return {**choose_union_thresholds(score_a, score_b, y, cfg, forced), "strategy": "joint"}
+    if strategy != "separate":
+        raise ValueError(f"unknown threshold strategy {strategy!r}")
+    a = np.asarray(score_a, dtype=float)
+    b = np.asarray(score_b, dtype=float)
+    f = np.zeros_like(y) if forced is None else np.asarray(forced, dtype=bool)
+    scope = np.ones_like(y) if b_scope is None else np.asarray(b_scope, dtype=bool)
+    yb = y if b_positive is None else np.asarray(b_positive, dtype=bool)
+    ra = choose_threshold(a, y, cfg, f)
+    rb = choose_threshold(b[scope], yb[scope], cfg, f[scope])
+    union = choose_union_thresholds(a, b, y, cfg, f, candidates_a=np.array([ra["threshold"]]),
+                                    candidates_b=np.array([rb["threshold"]]))
+    return {
+        "threshold_a": ra["threshold"],
+        "threshold_b": rb["threshold"],
+        "validation": union["validation"],
+        "validation_module_a_only": ra["validation"],
+        "validation_module_b_drift_scope": rb["validation"],
+        "cost_config": cfg.as_dict(),
+        "strategy": "separate",
+    }

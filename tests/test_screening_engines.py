@@ -54,8 +54,10 @@ def test_module_a_outlier_detection_and_benign_control(
         (merged["ground_truth_label"] == "NORMAL") & (~merged["is_benign_high_lot"])
     ]["module_a_score"]
 
-    assert lvl_scores.mean() > norm_scores.mean() + 0.35
-    assert (lvl_scores > 0.40).mean() >= 0.75
+    # Scale-free (the decision score is in lot-MAD units): most level outliers rank above the
+    # 90th percentile of normal parts.
+    assert lvl_scores.mean() > 2 * norm_scores.mean()
+    assert (lvl_scores > norm_scores.quantile(0.90)).mean() >= 0.75
 
     # 2. SUBTLE_MULTIVARIATE should exhibit elevated Mahalanobis distances
     subtle_maha = merged[merged["ground_truth_label"] == "SUBTLE_MULTIVARIATE"]["module_a_mahalanobis"]
@@ -68,8 +70,10 @@ def test_module_a_outlier_detection_and_benign_control(
     benign_parts = merged[merged["is_benign_high_lot"]]
     benign_normal_parts = benign_parts[benign_parts["ground_truth_label"] == "NORMAL"]
     assert len(benign_normal_parts) > 0
-    # Mean score for benign lot parts must remain low despite elevated baseline (~22 uA)
-    assert benign_normal_parts["module_a_score"].mean() < 0.35
+    # Lot-relative scoring: parts from the benign high-baseline lots (~22 uA vs ~12 uA) score like
+    # normal parts from standard lots, not like outliers.
+    ratio = benign_normal_parts["module_a_score"].mean() / norm_scores.mean()
+    assert 0.75 < ratio < 1.33
 
 
 def test_module_b_held_out_lots_beats_linear_baseline(

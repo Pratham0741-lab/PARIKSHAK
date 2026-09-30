@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     FN_COST: float = 20.0
     FP_COST: float = 1.0
     RECALL_TARGET: Optional[float] = None
+    # "separate": Module A threshold and Module B safety-slope k are each cost-minimised on their own
+    #             (PS 26170 requires Module B to flag on its own safety-slope rule), decision = union.
+    # "joint":    the pair is optimised together for the union (may disable a module entirely).
+    THRESHOLD_STRATEGY: str = "separate"
 
     @computed_field
     @property

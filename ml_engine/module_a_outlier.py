@@ -5,6 +5,14 @@ Every part is scored relative to its OWN lot: per-lot Median/MAD normalisation o
 early (0h, 24h) readings, followed by a Ledoit-Wolf shrunk Mahalanobis distance and an
 Isolation Forest fitted on lot-normalised training data. Only 0h and 24h readings are used,
 so the detector can run at the 24h checkpoint and never sees 96h/168h values.
+
+Decision score (module_a_score): the sum over parameters of the POSITIVE lot-relative robust
+z-scores, i.e. how far, in lot-MAD units, a part sits above its own lot's median on leakage,
+IDDQ and delay combined. Burn-in degradation raises all three, so downward deviations are not
+counted. This statistic was selected on development datasets that exclude the evaluation seed
+(evaluation/module_a_dev_study.py, reports/module_a_dev_study.json). Mahalanobis distance,
+Isolation Forest score and the earlier blended composite are still reported as diagnostics and
+used in explanations.
 """
 
 from __future__ import annotations
@@ -29,9 +37,9 @@ class LotOutlierDetector:
     to decouple wafer process corner shifts (BENIGN_HIGH_LOT) from genuine defects.
     """
 
-    # Cold-start default only; the operational threshold is chosen by cost minimisation
-    # on out-of-fold validation predictions (see evaluation/thresholds.py).
-    DEFAULT_THRESHOLD: float = 0.50
+    # Cold-start default only (in lot-MAD units); the operational threshold is chosen by cost
+    # minimisation on out-of-fold validation predictions (see evaluation/thresholds.py).
+    DEFAULT_THRESHOLD: float = 4.0
     PARAMETERS: Tuple[str, ...] = (
         "leakage_current_ua",
         "iddq_ma",
@@ -144,14 +152,17 @@ class LotOutlierDetector:
         blended = 0.35 * s_maha + 0.35 * s_univ + 0.15 * s_joint + 0.15 * s_iso
         composite = np.clip(np.maximum(blended, np.maximum(s_univ * 0.95, s_joint * 0.90)), 0.0, 1.0)
 
+        decision = np.sum(np.maximum(0.0, Z), axis=1)
+
         out = pd.DataFrame(
             {
                 "component_id": piv["component_id"].to_numpy(),
                 "lot_id": piv["lot_id"].to_numpy(),
-                "module_a_score": np.round(composite, 4),
+                "module_a_score": np.round(decision, 4),
+                "module_a_composite": np.round(composite, 4),
                 "module_a_mahalanobis": np.round(mahalanobis_dists, 4),
                 "module_a_isolation": np.round(s_iso, 4),
-                "module_a_flag": composite >= self.threshold,
+                "module_a_flag": decision >= self.threshold,
             }
         )
         for j, p in enumerate(self.PARAMETERS):

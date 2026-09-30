@@ -22,7 +22,7 @@ import pandas as pd
 
 from evaluation.cost import CostConfig
 from evaluation.splits import assert_disjoint, lot_group_kfold
-from evaluation.thresholds import choose_union_thresholds
+from evaluation.thresholds import choose_thresholds
 from ml_engine.features import EARLY_INTERVALS, PARAMETERS
 from ml_engine.module_a_outlier import LotOutlierDetector
 from ml_engine.module_b_drift import DriftPredictor
@@ -32,6 +32,8 @@ from ml_engine.verdict_engine import PRED_COLUMN, ScreeningVerdictEngine
 READING_COLUMNS = ["component_id", "lot_id", "interval_hours", *PARAMETERS]
 LABEL_COLUMNS = ("ground_truth_label", "ground_truth_flag", "is_datasheet_breached", "is_benign_high_lot")
 DATASHEET_LIMITS = ScreeningVerdictEngine.datasheet_limits()
+# Defect types Module B's safety-slope rule is responsible for (used only to calibrate k on training lots).
+MODULE_B_TARGET_CLASSES = ("STEEP_DRIFT", "LATE_DRIFT")
 
 # Cold-start defaults, used only if a model is asked to predict before thresholds are learned.
 COLD_START_THRESHOLDS = {"threshold_a": LotOutlierDetector.DEFAULT_THRESHOLD, "threshold_b": COLD_START_K}
@@ -52,8 +54,10 @@ def observed_static_breach(early: pd.DataFrame) -> pd.Series:
 
 
 class ScreeningModel:
-    def __init__(self, cost: Optional[CostConfig] = None, random_state: int = 42, inner_splits: int = 4):
+    def __init__(self, cost: Optional[CostConfig] = None, random_state: int = 42, inner_splits: int = 4,
+                 threshold_strategy: str = "separate"):
         self.cost = cost or CostConfig()
+        self.threshold_strategy = threshold_strategy
         self.random_state = random_state
         self.inner_splits = inner_splits
         self.module_a = LotOutlierDetector(random_state=random_state)
@@ -113,6 +117,9 @@ class ScreeningModel:
             frames.append(self._scores(early_readings_only(inner_val), a, b, floors))
         val = pd.concat(frames, ignore_index=True)
         val["y"] = val["component_id"].map(self._labels(train_df)).astype(bool)
+        if "ground_truth_label" in train_df.columns:
+            labels = train_df.drop_duplicates("component_id").set_index("component_id")["ground_truth_label"]
+            val["label"] = val["component_id"].map(labels).astype(str)
         return val
 
     def fit(self, train_df: pd.DataFrame) -> "ScreeningModel":
@@ -121,9 +128,12 @@ class ScreeningModel:
 
         if "ground_truth_flag" in train_df.columns and len(self.training_lot_ids_) >= 2:
             val = self.validation_scores(train_df)
-            chosen = choose_union_thresholds(
+            chosen = choose_thresholds(
                 val["module_a_score"], val["module_b_score"], val["y"], self.cost,
                 forced=val["observed_static_breach"] | val["predicted_limit_breach"],
+                strategy=self.threshold_strategy,
+                b_scope=(val["label"].isin(MODULE_B_TARGET_CLASSES) | ~val["y"]) if "label" in val else None,
+                b_positive=val["label"].isin(MODULE_B_TARGET_CLASSES) if "label" in val else None,
             )
             self.thresholds_ = {**chosen, "source": "cost_minimised_on_inner_oof_validation",
                                 "n_validation_lots": len(self.training_lot_ids_)}

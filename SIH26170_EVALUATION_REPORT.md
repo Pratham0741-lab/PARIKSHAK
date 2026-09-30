@@ -16,42 +16,46 @@ fails if a fresh run does not reproduce them exactly.
 - Decision cost: a missed defect (FN) costs **20**, a false alarm (FP) **1**; no recall constraint.
 - Module A / Module B thresholds are chosen per fold by minimising that cost on an inner lot-grouped
   CV over the fold's training lots only (never on the held-out lots).
+- Threshold strategy: **separate** (separate = each module's threshold minimises cost on
+  its own, as PS 26170 requires Module B to flag on its own safety-slope rule; decision = union).
 
 | Fold | Train lots | Test lots | Test parts | Chosen threshold A | Chosen threshold B | Inner-CV recall |
 |---:|---:|---:|---:|---:|---:|---:|
-| 0 | 8 | 2 | 200 | 0.0172 | 2.3412 | 95.2% |
-| 1 | 8 | 2 | 200 | 0.3586 | 1.0734 | 88.9% |
-| 2 | 8 | 2 | 200 | 0.4569 | 0.3772 | 97.6% |
-| 3 | 8 | 2 | 200 | 0.4473 | 2.6784 | 72.2% |
-| 4 | 8 | 2 | 200 | 0.4514 | 7.1414 | 68.1% |
+| 0 | 8 | 2 | 200 | 1.6621 | 2.5803 | 86.9% |
+| 1 | 8 | 2 | 200 | 2.0489 | 8.2425 | 86.1% |
+| 2 | 8 | 2 | 200 | 2.1015 | 2.5465 | 85.7% |
+| 3 | 8 | 2 | 200 | 2.0345 | 6.762 | 84.7% |
+| 4 | 8 | 2 | 200 | 2.9303 | 7.5169 | 76.4% |
 
 ## Anomaly detection (flag = verdict REVIEW or REJECT)
 
 | Metric | Held-out lots | TRAIN (optimistic) |
 |---|---:|---:|
-| Recall | **76.0%** | 90.6% |
-| Precision | **13.7%** | 18.9% |
-| F2 (beta=2) | **39.9%** | 51.5% |
-| F1 | **23.2%** | 31.2% |
-| Weighted cost (FN x20 + FP x1) | **919.0** | 554.0 |
-| Weighted cost per 1,000 parts | **919.0** | 554.0 |
+| Recall | **78.1%** | 92.7% |
+| Precision | **20.1%** | 23.4% |
+| F2 (beta=2) | **49.5%** | 58.2% |
+| F1 | **32.0%** | 37.4% |
+| Weighted cost (FN x20 + FP x1) | **718.0** | 431.0 |
+| Weighted cost per 1,000 parts | **718.0** | 431.0 |
 | Reference: cost of flagging EVERY part | 904 | 904 |
 | Reference: cost of flagging NO part | 1920 | 1920 |
-| False-negative rate | **24.0%** | 9.4% |
-| TP | **73** | 87 |
-| FN (escapes) | **23** | 9 |
-| FP | **459** | 374 |
-| TN | **445** | 530 |
+| False-negative rate | **21.9%** | 7.3% |
+| TP | **75** | 89 |
+| FN (escapes) | **21** | 7 |
+| FP | **298** | 291 |
+| TN | **606** | 613 |
+
+Alternative threshold strategy **joint** under the same held-out protocol: recall 78.1%, precision 20.6%, F2 50.1%, weighted cost 709 (FN 21, FP 289); Module B's slope rule was disabled (k = +inf) in 5 of 5 folds.
 
 ### Catch rate by defect class (held-out)
 
 | Class | Parts | Flagged (held-out) | Flagged (TRAIN) |
 |---|---:|---:|---:|
-| `LATE_DRIFT` | 24 | **41.7%** | 100.0% |
-| `LEVEL_OUTLIER` | 24 | **95.8%** | 87.5% |
-| `NORMAL` | 904 | **50.8%** | 41.4% |
-| `STEEP_DRIFT` | 24 | **95.8%** | 100.0% |
-| `SUBTLE_MULTIVARIATE` | 24 | **70.8%** | 75.0% |
+| `LATE_DRIFT` | 24 | **37.5%** | 87.5% |
+| `LEVEL_OUTLIER` | 24 | **87.5%** | 95.8% |
+| `NORMAL` | 904 | **33.0%** | 32.2% |
+| `STEEP_DRIFT` | 24 | **100.0%** | 100.0% |
+| `SUBTLE_MULTIVARIATE` | 24 | **87.5%** | 87.5% |
 
 ## Module B: 168h forecast accuracy
 

@@ -103,3 +103,31 @@ def test_model_learns_and_persists_thresholds(tmp_path):
     preds = loaded.predict(df)
     assert (preds["threshold_a"] == m.thresholds_["threshold_a"]).all()
     assert (preds["module_a_flag"] == (preds["module_a_score"] >= m.thresholds_["threshold_a"])).all()
+
+
+def test_separate_strategy_keeps_module_b_rule_active(validation_scores):
+    from ml_engine.screening import MODULE_B_TARGET_CLASSES
+    from evaluation.thresholds import choose_thresholds
+
+    v = validation_scores
+    forced = v["observed_static_breach"] | v["predicted_limit_breach"]
+    scope = v["label"].isin(MODULE_B_TARGET_CLASSES) | ~v["y"]
+    res = choose_thresholds(v["module_a_score"], v["module_b_score"], v["y"], CostConfig(), forced,
+                            strategy="separate", b_scope=scope, b_positive=v["label"].isin(MODULE_B_TARGET_CLASSES))
+    assert np.isfinite(res["threshold_b"]) and np.isfinite(res["threshold_a"])
+    # k is exactly the cost-optimal single threshold on Module B's drift scope
+    rb = choose_threshold(v["module_b_score"][scope], v["label"][scope].isin(MODULE_B_TARGET_CLASSES),
+                          CostConfig(), forced[scope])
+    assert res["threshold_b"] == rb["threshold"]
+
+
+def test_module_a_decision_statistic_matches_dev_study():
+    from pathlib import Path
+
+    from backend.app.core.config import settings
+
+    study = json.loads((Path(__file__).resolve().parent.parent / "reports" / "module_a_dev_study.json").read_text())
+    assert settings.SYNTHETIC_RANDOM_SEED not in study["dev_seeds"]
+    assert study["selected"] == "sum_positive_z"
+    best = max(study["mean_auc"], key=lambda k: study["mean_auc"][k]["auc_all"])
+    assert best == study["selected"]
