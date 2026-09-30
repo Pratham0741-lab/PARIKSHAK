@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).with_name("module_b_config.json")
 TARGETS = ("raw", "drift", "log_ratio")
+# Quantile models for conformalised quantile regression (CQR). The nominal coverage of the final
+# interval is set by the conformal step in ScreeningModel (INTERVAL_COVERAGE), not by these alphas.
+QUANTILES = (0.05, 0.95)
+SHORT = {"leakage_current_ua": "leakage", "iddq_ma": "iddq", "propagation_delay_ns": "delay"}
 BASE_LGB_PARAMS: Dict[str, Any] = {"n_estimators": 100, "learning_rate": 0.05, "min_child_samples": 5}
 
 
@@ -87,6 +91,7 @@ class DriftPredictor:
         if self.target not in TARGETS:
             raise ValueError(f"target must be one of {TARGETS}")
         self.models_: Dict[str, lgb.LGBMRegressor] = {}
+        self.quantile_models_: Dict[str, Dict[float, lgb.LGBMRegressor]] = {}
         self.feature_columns_: List[str] = []
 
     def config(self) -> Dict[str, Any]:
@@ -115,6 +120,9 @@ class DriftPredictor:
         for p in self.PARAMETERS:
             y = to_target(targets.loc[common, f"{p}_168"].to_numpy(float), feats[f"{p}_v24"].to_numpy(float), self.target)
             self.models_[p] = self._new_model().fit(X, y)
+            self.quantile_models_[p] = {
+                q: self._new_model(objective="quantile", alpha=q).fit(X, y) for q in QUANTILES
+            }
         return self
 
     def predict_values(self, feats: pd.DataFrame) -> Dict[str, np.ndarray]:
@@ -131,6 +139,14 @@ class DriftPredictor:
             raise RuntimeError("DriftPredictor must be fitted before predict().")
         feats = self.features(df)
         preds = self.predict_values(feats)
+        X = feats[self.feature_columns_]
+        bounds = {}
+        for p in self.PARAMETERS:
+            v24 = feats[f"{p}_v24"].to_numpy(float)
+            lo = from_target(self.quantile_models_[p][QUANTILES[0]].predict(X), v24, self.target)
+            hi = from_target(self.quantile_models_[p][QUANTILES[1]].predict(X), v24, self.target)
+            bounds[f"q_lo_{SHORT[p]}_168h"] = np.round(np.minimum(lo, hi), 4)  # guard against quantile crossing
+            bounds[f"q_hi_{SHORT[p]}_168h"] = np.round(np.maximum(lo, hi), 4)
         leak_0 = feats["leakage_current_ua_v0"].to_numpy()
         # Predicted 168h drift rate of leakage current (uA/hr), from 0h to the 168h forecast.
         drift_slope = (preds["leakage_current_ua"] - leak_0) / 168.0
@@ -141,6 +157,7 @@ class DriftPredictor:
                 "pred_iddq_168h": np.round(preds["iddq_ma"], 4),
                 "pred_delay_168h": np.round(preds["propagation_delay_ns"], 4),
                 "drift_slope_ua_per_hr": np.round(drift_slope, 5),
+                **bounds,
             }
         )
 

@@ -69,6 +69,13 @@
     },
     "regression": {
       "iddq_ma": {
+        "interval": {
+          "empirical_coverage": 0.915,
+          "mean_width": 0.4109,
+          "n": 1000,
+          "width_max": 0.9611,
+          "width_min": 0.2368
+        },
         "linear_baseline": {
           "mae": 0.6081,
           "n": 1000,
@@ -81,6 +88,13 @@
         }
       },
       "leakage_current_ua": {
+        "interval": {
+          "empirical_coverage": 0.89,
+          "mean_width": 7.4773,
+          "n": 1000,
+          "width_max": 51.6962,
+          "width_min": 1.4549
+        },
         "linear_baseline": {
           "mae": 5.9695,
           "n": 1000,
@@ -93,6 +107,13 @@
         }
       },
       "propagation_delay_ns": {
+        "interval": {
+          "empirical_coverage": 0.909,
+          "mean_width": 0.884,
+          "n": 1000,
+          "width_max": 1.2453,
+          "width_min": 0.6305
+        },
         "linear_baseline": {
           "mae": 1.6873,
           "n": 1000,
@@ -270,6 +291,13 @@
     },
     "regression": {
       "iddq_ma": {
+        "interval": {
+          "empirical_coverage": 0.986,
+          "mean_width": 0.4007,
+          "n": 1000,
+          "width_max": 0.95,
+          "width_min": 0.2364
+        },
         "linear_baseline": {
           "mae": 0.6081,
           "n": 1000,
@@ -282,6 +310,13 @@
         }
       },
       "leakage_current_ua": {
+        "interval": {
+          "empirical_coverage": 0.983,
+          "mean_width": 6.6915,
+          "n": 1000,
+          "width_max": 53.9748,
+          "width_min": 1.2463
+        },
         "linear_baseline": {
           "mae": 5.9695,
           "n": 1000,
@@ -294,6 +329,13 @@
         }
       },
       "propagation_delay_ns": {
+        "interval": {
+          "empirical_coverage": 0.987,
+          "mean_width": 0.8861,
+          "n": 1000,
+          "width_max": 1.2107,
+          "width_min": 0.6606
+        },
         "linear_baseline": {
           "mae": 1.6873,
           "n": 1000,

@@ -59,11 +59,11 @@ Alternative threshold strategy **joint** under the same held-out protocol: recal
 
 ## Module B: 168h forecast accuracy
 
-| Parameter | Held-out MAE | Held-out RMSE | Linear baseline MAE (held-out) | TRAIN MAE (optimistic) |
-|---|---:|---:|---:|---:|
-| `leakage_current_ua` | **1.9299** | 5.1124 | 5.9695 | 1.4276 |
-| `iddq_ma` | **0.0918** | 0.1260 | 0.6081 | 0.0667 |
-| `propagation_delay_ns` | **0.2059** | 0.2612 | 1.6873 | 0.1516 |
+| Parameter | Held-out MAE | Held-out RMSE | Linear baseline MAE (held-out) | TRAIN MAE (optimistic) | 90% interval: held-out coverage | Mean width (min-max) |
+|---|---:|---:|---:|---:|---:|---:|
+| `leakage_current_ua` | **1.9299** | 5.1124 | 5.9695 | 1.4276 | **89.0%** | 7.477 (1.455-51.696) |
+| `iddq_ma` | **0.0918** | 0.1260 | 0.6081 | 0.0667 | **91.5%** | 0.411 (0.237-0.961) |
+| `propagation_delay_ns` | **0.2059** | 0.2612 | 1.6873 | 0.1516 | **90.9%** | 0.884 (0.630-1.245) |
 
 ### Module B model selection (nested lot-grouped CV, `python -m evaluation.module_b_study`)
 

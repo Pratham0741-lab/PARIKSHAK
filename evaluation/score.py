@@ -78,6 +78,18 @@ def score(predictions: pd.DataFrame, truth: pd.DataFrame, cost: CostConfig | Non
         if tcol not in scored.columns or PRED_COLUMN[p] not in scored.columns:
             continue
         entry = {"model": regression_metrics(scored[tcol], scored[PRED_COLUMN[p]])}
+        short = {"leakage_current_ua": "leakage", "iddq_ma": "iddq", "propagation_delay_ns": "delay"}[p]
+        lo_c, hi_c = f"pi_lo_{short}_168h", f"pi_hi_{short}_168h"
+        if lo_c in scored.columns and hi_c in scored.columns:
+            ok = scored[tcol].notna() & scored[lo_c].notna()
+            t, lo, hi = scored.loc[ok, tcol], scored.loc[ok, lo_c], scored.loc[ok, hi_c]
+            entry["interval"] = {
+                "n": int(ok.sum()),
+                "empirical_coverage": float(((t >= lo) & (t <= hi)).mean()) if ok.any() else float("nan"),
+                "mean_width": float((hi - lo).mean()) if ok.any() else float("nan"),
+                "width_min": float((hi - lo).min()) if ok.any() else float("nan"),
+                "width_max": float((hi - lo).max()) if ok.any() else float("nan"),
+            }
         bcol = f"baseline_{p}_168h"
         if bcol in scored.columns:
             entry["linear_baseline"] = regression_metrics(scored[tcol], scored[bcol])

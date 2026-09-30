@@ -116,7 +116,17 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
     }
     # Transparency: the alternative threshold strategy, evaluated with the same held-out protocol.
     alt = "joint" if cfg["threshold_strategy"] == "separate" else "separate"
-    cf_alt = cross_fit_predict(df, model_factory(cfg, alt), n_splits=cfg["n_splits"], seed=cfg["seed"])
+    df_s = df.assign(lot_id=df["lot_id"].astype(str), component_id=df["component_id"].astype(str))
+    alt_models, alt_preds = {}, []
+    for f in cf.folds:  # same fitted models, thresholds re-chosen from their own inner-CV validation scores
+        alt_models[f.fold] = cf.models[f.fold].rethreshold(alt)
+        alt_preds.append(alt_models[f.fold].predict(early_readings_only(df_s[df_s["lot_id"].isin(f.test_lots)])))
+
+    class _Alt:  # minimal stand-in with the fields used below
+        predictions = pd.concat(alt_preds, ignore_index=True)
+        models = alt_models
+
+    cf_alt = _Alt()
     alt_score = score(cf_alt.predictions, truth, cost_of(cfg))
     results["alternative_strategy"] = {
         "strategy": alt,
@@ -237,15 +247,18 @@ def render_markdown(res: Dict[str, Any]) -> str:
         "",
         "## Module B: 168h forecast accuracy",
         "",
-        "| Parameter | Held-out MAE | Held-out RMSE | Linear baseline MAE (held-out) | TRAIN MAE (optimistic) |",
-        "|---|---:|---:|---:|---:|",
+        "| Parameter | Held-out MAE | Held-out RMSE | Linear baseline MAE (held-out) | TRAIN MAE (optimistic) "
+        "| 90% interval: held-out coverage | Mean width (min-max) |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for p in [q for q in PARAMETERS if q in ho["regression"]]:
         e = ho["regression"][p]
         t = tr["regression"][p]["model"]["mae"] if tr else None
         lines.append(
             f"| `{p}` | **{e['model']['mae']:.4f}** | {e['model']['rmse']:.4f} | "
-            f"{e['linear_baseline']['mae']:.4f} | {t if t is not None else 'n/a'} |"
+            f"{e['linear_baseline']['mae']:.4f} | {t if t is not None else 'n/a'} | "
+            + (f"**{_pct(e['interval']['empirical_coverage'])}** | {e['interval']['mean_width']:.3f} "
+               f"({e['interval']['width_min']:.3f}-{e['interval']['width_max']:.3f}) |" if "interval" in e else "n/a | n/a |")
         )
     sel = res.get("module_b_selection")
     if sel:
