@@ -27,7 +27,7 @@ class ModelPredictionItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    module_a_score: float = Field(..., description="Module A composite outlier score [0, 1]")
+    module_a_score: float = Field(..., description="Module A lot-outlier decision score")
     module_a_mahalanobis: float = Field(..., description="Mahalanobis distance")
     module_a_flag: bool = Field(..., description="True if flagged as spatial outlier")
     pred_leakage_168h: float = Field(..., description="Forecasted 168h leakage in uA")
@@ -35,6 +35,12 @@ class ModelPredictionItem(BaseModel):
     pred_delay_168h: float = Field(..., description="Forecasted 168h delay in ns")
     drift_slope_ua_per_hr: float = Field(..., description="Implied drift rate in uA/hr")
     module_b_flag: bool = Field(..., description="True if early drift alert triggered")
+    module_b_score: Optional[float] = Field(None, description="Module B decision score (drift z vs lot safety slope)")
+    threshold_a: Optional[float] = Field(None, description="Learned Module A threshold (null = module disabled)")
+    threshold_b: Optional[float] = Field(None, description="Learned Module B threshold k (null = module disabled)")
+    safety_slope_ua_per_hr: Optional[float] = Field(None, description="Calculated lot safety slope for leakage")
+    details: Optional[Dict[str, Any]] = Field(None, description="Derivations, intervals and contributions")
+    cv_fold: Optional[int] = Field(None, description="Out-of-fold provenance (lot fold that produced this prediction)")
     verdict: str = Field(..., description="Triage verdict: PASS, REVIEW, or REJECT")
     verdict_reason: str = Field(..., description="Rule justification")
     created_at: datetime

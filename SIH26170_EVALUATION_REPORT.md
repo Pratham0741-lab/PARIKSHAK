@@ -19,37 +19,37 @@ fails if a fresh run does not reproduce them exactly.
 
 | Fold | Train lots | Test lots | Test parts | Chosen threshold A | Chosen threshold B | Inner-CV recall |
 |---:|---:|---:|---:|---:|---:|---:|
-| 0 | 8 | 2 | 200 | 0.0172 | 0.0147 | 95.2% |
-| 1 | 8 | 2 | 200 | 0.5037 | 0.0033 | 90.3% |
-| 2 | 8 | 2 | 200 | 0.3304 | 0.0061 | 84.5% |
-| 3 | 8 | 2 | 200 | 0.0623 | 0.0083 | 90.3% |
-| 4 | 8 | 2 | 200 | 0.4514 | 0.0803 | 68.1% |
+| 0 | 8 | 2 | 200 | 0.0172 | 2.3412 | 95.2% |
+| 1 | 8 | 2 | 200 | 0.3586 | 1.0734 | 88.9% |
+| 2 | 8 | 2 | 200 | 0.4569 | 0.3772 | 97.6% |
+| 3 | 8 | 2 | 200 | 0.4473 | 2.6784 | 72.2% |
+| 4 | 8 | 2 | 200 | 0.4514 | 7.1414 | 68.1% |
 
 ## Anomaly detection (flag = verdict REVIEW or REJECT)
 
 | Metric | Held-out lots | TRAIN (optimistic) |
 |---|---:|---:|
-| Recall | **76.0%** | 91.7% |
-| Precision | **13.3%** | 17.8% |
-| F2 (beta=2) | **39.1%** | 50.1% |
-| F1 | **22.6%** | 29.8% |
-| Weighted cost (FN x20 + FP x1) | **936.0** | 567.0 |
-| Weighted cost per 1,000 parts | **936.0** | 567.0 |
+| Recall | **76.0%** | 90.6% |
+| Precision | **13.7%** | 18.9% |
+| F2 (beta=2) | **39.9%** | 51.5% |
+| F1 | **23.2%** | 31.2% |
+| Weighted cost (FN x20 + FP x1) | **919.0** | 554.0 |
+| Weighted cost per 1,000 parts | **919.0** | 554.0 |
 | Reference: cost of flagging EVERY part | 904 | 904 |
 | Reference: cost of flagging NO part | 1920 | 1920 |
-| False-negative rate | **24.0%** | 8.3% |
-| TP | **73** | 88 |
-| FN (escapes) | **23** | 8 |
-| FP | **476** | 407 |
-| TN | **428** | 497 |
+| False-negative rate | **24.0%** | 9.4% |
+| TP | **73** | 87 |
+| FN (escapes) | **23** | 9 |
+| FP | **459** | 374 |
+| TN | **445** | 530 |
 
 ### Catch rate by defect class (held-out)
 
 | Class | Parts | Flagged (held-out) | Flagged (TRAIN) |
 |---|---:|---:|---:|
-| `LATE_DRIFT` | 24 | **54.2%** | 100.0% |
-| `LEVEL_OUTLIER` | 24 | **83.3%** | 91.7% |
-| `NORMAL` | 904 | **52.6%** | 45.0% |
+| `LATE_DRIFT` | 24 | **41.7%** | 100.0% |
+| `LEVEL_OUTLIER` | 24 | **95.8%** | 87.5% |
+| `NORMAL` | 904 | **50.8%** | 41.4% |
 | `STEEP_DRIFT` | 24 | **95.8%** | 100.0% |
 | `SUBTLE_MULTIVARIATE` | 24 | **70.8%** | 75.0% |
 

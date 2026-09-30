@@ -6,7 +6,7 @@ Stores Module A outlier metrics, Module B 168h drift predictions, and final Verd
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -20,7 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.models.base import Base
@@ -117,6 +117,14 @@ class ModelPrediction(Base):
     )
     run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("screening_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    safety_slope_ua_per_hr: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True,
+        doc="Calculated lot safety slope for leakage (lot median predicted rate + k * lot spread)",
+    )
+    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True,
+        doc="Per-part derivations: drift rates vs safety slopes, prediction intervals, feature contributions",
     )
     cv_fold: Mapped[Optional[int]] = mapped_column(
         Integer,

@@ -55,7 +55,7 @@ class ScreeningVerdictEngine:
         threshold_a: float,
         module_b_score: float,
         threshold_b: float,
-        module_b_label: str = "predicted leakage drift rate",
+        module_b_label: str = "drift z (predicted rate vs lot safety slope)",
     ) -> Tuple[str, str]:
         limits = self.datasheet_limits()
         a_flag = module_a_score >= threshold_a

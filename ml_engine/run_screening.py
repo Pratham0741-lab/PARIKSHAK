@@ -40,7 +40,7 @@ from backend.app.models import BurnInReading, Component, Lot, ModelPrediction, S
 from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
-from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E402
+from ml_engine.screening import ScreeningModel, early_readings_only, prediction_details  # noqa: E402
 
 console = Console(highlight=False)
 
@@ -121,6 +121,10 @@ def persist_predictions(session: Session, preds: pd.DataFrame, run_id=None, batc
         }
         for r in preds.itertuples(index=False)
     ]
+    for row, (_, full) in zip(rows, preds.iterrows()):
+        row["safety_slope_ua_per_hr"] = _finite(full["safety_slope_leakage_current_ua"]) if pd.notna(
+            full["safety_slope_leakage_current_ua"]) else None
+        row["details"] = prediction_details(full)
     for i in range(0, len(rows), batch_size):
         session.execute(insert(ModelPrediction), rows[i : i + batch_size])
     session.commit()
