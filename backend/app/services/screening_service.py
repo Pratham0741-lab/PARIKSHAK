@@ -19,7 +19,13 @@ from ml_engine.features import PARAMETERS
 from ml_engine.screening import ScreeningModel, early_readings_only, prediction_details
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-ARTIFACT_PATH = PROJECT_ROOT / "artifacts" / "screening_model.joblib"
+
+
+def artifact_path() -> Path:
+    from backend.app.core.config import settings
+
+    p = Path(settings.MODEL_ARTIFACT_PATH)
+    return p if p.is_absolute() else PROJECT_ROOT / p
 
 INSUFFICIENT_REASON = (
     "INSUFFICIENT_DATA: a 0h/24h reading was missing or invalid at ingest (imputed for display only); "
@@ -82,7 +88,8 @@ def audit(session: Session, category: str, actor: str, action: str, details: str
                            lot_id=lot_id, component_id=component_id, payload=payload))
 
 
-def load_model(path: Path = ARTIFACT_PATH) -> ScreeningModel:
+def load_model(path: Path | None = None) -> ScreeningModel:
+    path = path or artifact_path()
     if not Path(path).exists():
         raise FileNotFoundError(f"No trained model artifact at {path}. Run `python ml_engine/run_screening.py` first.")
     return ScreeningModel.load(path)

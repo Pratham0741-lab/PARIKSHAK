@@ -37,7 +37,12 @@ from sqlalchemy.orm import Session  # noqa: E402
 from backend.app.core.config import settings  # noqa: E402
 from backend.app.core.database import SessionLocal  # noqa: E402
 from backend.app.models import BurnInReading, Component, Lot, ModelPrediction, ScreeningRun  # noqa: E402
-from backend.app.services.screening_service import audit, prediction_record, write_predictions  # noqa: E402
+from backend.app.services.screening_service import (  # noqa: E402
+    artifact_path,
+    audit,
+    prediction_record,
+    write_predictions,
+)
 from evaluation.cost import CostConfig  # noqa: E402
 from evaluation.crossfit import cross_fit_predict, extract_truth  # noqa: E402
 from evaluation.score import score  # noqa: E402
@@ -45,7 +50,6 @@ from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E40
 
 console = Console(highlight=False)
 
-ARTIFACT_PATH = PROJECT_ROOT / "artifacts" / "screening_model.joblib"
 PROTOCOL = (
     "Out-of-fold: GroupKFold over lots; each fold's model is trained on the other lots with thresholds "
     "chosen by FN-weighted cost minimisation on an inner lot-grouped CV of those training lots; held-out "
@@ -153,8 +157,9 @@ def run_pipeline(
         # Final model on every labelled lot: its thresholds (chosen on inner OOF) are persisted
         # with the artifact and used for lots screened later (e.g. CSV ingest).
         final = factory().fit(df)
-        final.save(ARTIFACT_PATH)
-        console.print(f"Saved model + thresholds to {ARTIFACT_PATH.relative_to(PROJECT_ROOT)} "
+        artifact = artifact_path()
+        final.save(artifact)
+        console.print(f"Saved model + thresholds to {artifact} "
                       f"(A={final.thresholds_['threshold_a']:.4f}, B={final.thresholds_['threshold_b']:.4f})")
 
         result: Dict[str, Any] = {"held_out": held_out, "predictions": cf.predictions, "final_model": final}
@@ -170,7 +175,7 @@ def run_pipeline(
                 final_thresholds=_jsonable(final.thresholds_),
                 fold_thresholds=_jsonable({str(k): m.thresholds_ for k, m in cf.models.items()}),
                 held_out_metrics=_jsonable(held_out),
-                artifact_path=str(ARTIFACT_PATH.relative_to(PROJECT_ROOT)),
+                artifact_path=str(artifact),
             )
             session.add(run)
             session.flush()

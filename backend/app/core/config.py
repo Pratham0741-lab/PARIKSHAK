@@ -64,6 +64,10 @@ class Settings(BaseSettings):
         "http://localhost:8080,http://127.0.0.1:8080"
     )
 
+    # Trained screening model (thresholds, calibration) written by run_screening, read by CSV ingest.
+    # Relative paths are resolved against the project root.
+    MODEL_ARTIFACT_PATH: str = "artifacts/screening_model.joblib"
+
     # Screening decision costs (see evaluation/cost.py). A missed defect (FN) is weighted
     # FN_COST / FP_COST times a false alarm. RECALL_TARGET optionally constrains threshold choice.
     FN_COST: float = 20.0
