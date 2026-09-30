@@ -35,6 +35,7 @@ from ml_engine.screening import ScreeningModel, early_readings_only  # noqa: E40
 
 REPORT_JSON = ROOT / "reports" / "evaluation_results.json"
 REPORT_MD = ROOT / "SIH26170_EVALUATION_REPORT.md"
+STUDY_JSON = ROOT / "reports" / "module_b_study.json"
 
 
 def default_config() -> Dict[str, Any]:
@@ -111,6 +112,16 @@ def evaluate(cfg: Dict[str, Any] | None = None, include_train: bool = True, out_
         },
         "held_out": score(cf.predictions, truth, cost_of(cfg)),
     }
+    if STUDY_JSON.exists():
+        study = json.loads(STUDY_JSON.read_text(encoding="utf-8"))
+        results["module_b_selection"] = {
+            "production_choice": study["production_choice"]["id"],
+            "nested_estimate": study["nested_estimate"]["metrics"],
+            "per_fold_choice": [c["chosen"] for c in study["nested_estimate"]["per_fold_choice"]],
+            "original_v1_raw_g0": study["original_v1_raw_g0"],
+            "linear_baseline": study["linear_baseline"],
+            "n_candidates": len(study["candidates"]),
+        }
     if include_train:
         results["train_optimistic"] = score(train_in_sample(df, cfg), truth, cost_of(cfg))
     results = _round(results)
@@ -178,6 +189,10 @@ def render_markdown(res: Dict[str, Any]) -> str:
         det_row("F1", "f1", _pct),
         det_row(f"Weighted cost (FN x{cfg['fn_cost']:g} + FP x{cfg['fp_cost']:g})", "weighted_cost"),
         det_row("Weighted cost per 1,000 parts", "cost_per_1000_parts"),
+        f"| Reference: cost of flagging EVERY part | {ho['trivial_policies']['flag_all_parts']['weighted_cost']:g} | "
+        f"{tr['trivial_policies']['flag_all_parts']['weighted_cost'] if tr else 'n/a':g} |",
+        f"| Reference: cost of flagging NO part | {ho['trivial_policies']['flag_no_parts']['weighted_cost']:g} | "
+        f"{tr['trivial_policies']['flag_no_parts']['weighted_cost'] if tr else 'n/a':g} |",
         det_row("False-negative rate", "false_negative_rate", _pct),
         det_row("TP", "tp"),
         det_row("FN (escapes)", "fn"),
@@ -207,6 +222,27 @@ def render_markdown(res: Dict[str, Any]) -> str:
             f"| `{p}` | **{e['model']['mae']:.4f}** | {e['model']['rmse']:.4f} | "
             f"{e['linear_baseline']['mae']:.4f} | {t if t is not None else 'n/a'} |"
         )
+    sel = res.get("module_b_selection")
+    if sel:
+        lines += [
+            "",
+            "### Module B model selection (nested lot-grouped CV, `python -m evaluation.module_b_study`)",
+            "",
+            f"{sel['n_candidates']} candidates (feature set v1/v2 x target raw/drift/log-ratio x LightGBM grid) were",
+            "compared. In each outer fold an inner lot-grouped CV over that fold's training lots picked the",
+            f"candidate (choices: {', '.join(sel['per_fold_choice'])}); it was then scored on the untouched outer lots.",
+            f"The production configuration (`{sel['production_choice']}`, `ml_engine/module_b_config.json`) was chosen",
+            "by lot-grouped CV over all lots, so the fixed-config MAE in the table above is slightly optimistic",
+            "for that choice; the nested column below is the unbiased estimate.",
+            "",
+            "| Parameter | Nested MAE (selection inside CV) | Original model (v1, raw target) | Linear baseline |",
+            "|---|---:|---:|---:|",
+        ]
+        for p in PARAMETERS:
+            lines.append(
+                f"| `{p}` | **{sel['nested_estimate'][p]['mae']:.4f}** | {sel['original_v1_raw_g0'][p]['mae']:.4f} | "
+                f"{sel['linear_baseline'][p]['mae']:.4f} |"
+            )
     lines.append("")
     return "\n".join(lines)
 

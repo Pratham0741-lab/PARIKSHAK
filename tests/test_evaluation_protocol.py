@@ -93,9 +93,10 @@ def test_future_columns_rejected_by_guard():
     assert_no_future_features(["leakage_current_ua_v24", "iddq_ma_delta"])
 
 
-def test_future_values_cannot_influence_features_or_forecasts(small_dataset):
+@pytest.mark.parametrize("feature_set,target", [("v1", "raw"), ("v2", "drift"), ("v2", "log_ratio")])
+def test_future_values_cannot_influence_features_or_forecasts(small_dataset, feature_set, target):
     df = small_dataset
-    feats = build_early_features(df)
+    feats = build_early_features(df, feature_set)
     assert_no_future_features(feats.columns)
 
     # Perturb every 96h/168h reading wildly: features and forecasts must not move.
@@ -103,9 +104,9 @@ def test_future_values_cannot_influence_features_or_forecasts(small_dataset):
     late = tampered["interval_hours"].isin([96, 168])
     for p in ("leakage_current_ua", "iddq_ma", "propagation_delay_ns"):
         tampered.loc[late, p] = tampered.loc[late, p] * 1000.0 + 12345.0
-    pd.testing.assert_frame_equal(feats, build_early_features(tampered))
+    pd.testing.assert_frame_equal(feats, build_early_features(tampered, feature_set))
 
-    model = DriftPredictor(random_state=0).fit(df)
+    model = DriftPredictor(feature_set=feature_set, target=target, random_state=0).fit(df)
     assert_no_future_features(model.feature_columns_)
     p1 = model.predict(df).set_index("component_id")
     p2 = model.predict(tampered).set_index("component_id")
@@ -132,3 +133,16 @@ def test_score_cli_uses_separate_truth_file(small_dataset, tmp_path, capsys):
     p = pd.read_csv(preds_csv).set_index("component_id")
     mae = np.mean(np.abs(p["pred_leakage_168h"] - t.loc[p.index, "true_leakage_current_ua_168h"]))
     assert metrics["regression"]["leakage_current_ua"]["model"]["mae"] == pytest.approx(mae)
+
+
+def test_production_module_b_config_comes_from_the_nested_study():
+    import json as _json
+    from ml_engine.module_b_drift import CONFIG_PATH
+
+    cfg = _json.loads(CONFIG_PATH.read_text())
+    assert "module_b_study" in cfg["selected_by"]
+    study = _json.loads((CONFIG_PATH.parent.parent / "reports" / "module_b_study.json").read_text())
+    assert study["production_choice"]["id"] == cfg["candidate_id"]
+    # the production choice is the argmin of its recorded inner-CV criterion
+    crit = study["production_choice"]["all_candidate_criteria"]
+    assert crit[cfg["candidate_id"]] == min(crit.values())

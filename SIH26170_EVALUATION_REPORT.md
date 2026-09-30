@@ -19,42 +19,59 @@ fails if a fresh run does not reproduce them exactly.
 
 | Fold | Train lots | Test lots | Test parts | Chosen threshold A | Chosen threshold B | Inner-CV recall |
 |---:|---:|---:|---:|---:|---:|---:|
-| 0 | 8 | 2 | 200 | 0.0617 | 0.0044 | 94.0% |
-| 1 | 8 | 2 | 200 | 0.196 | 0.0229 | 86.1% |
-| 2 | 8 | 2 | 200 | 0.3304 | 0.1476 | 76.2% |
-| 3 | 8 | 2 | 200 | 0.4473 | 0.0239 | 77.8% |
-| 4 | 8 | 2 | 200 | 0.4514 | 0.0638 | 69.4% |
+| 0 | 8 | 2 | 200 | 0.0172 | 0.0147 | 95.2% |
+| 1 | 8 | 2 | 200 | 0.5037 | 0.0033 | 90.3% |
+| 2 | 8 | 2 | 200 | 0.3304 | 0.0061 | 84.5% |
+| 3 | 8 | 2 | 200 | 0.0623 | 0.0083 | 90.3% |
+| 4 | 8 | 2 | 200 | 0.4514 | 0.0803 | 68.1% |
 
 ## Anomaly detection (flag = verdict REVIEW or REJECT)
 
 | Metric | Held-out lots | TRAIN (optimistic) |
 |---|---:|---:|
-| Recall | **76.0%** | 94.8% |
-| Precision | **15.0%** | 15.8% |
-| F2 (beta=2) | **41.9%** | 47.4% |
-| F1 | **25.0%** | 27.1% |
-| Weighted cost (FN x20 + FP x1) | **874.0** | 585.0 |
-| Weighted cost per 1,000 parts | **874.0** | 585.0 |
-| False-negative rate | **24.0%** | 5.2% |
-| TP | **73** | 91 |
-| FN (escapes) | **23** | 5 |
-| FP | **414** | 485 |
-| TN | **490** | 419 |
+| Recall | **76.0%** | 91.7% |
+| Precision | **13.3%** | 17.8% |
+| F2 (beta=2) | **39.1%** | 50.1% |
+| F1 | **22.6%** | 29.8% |
+| Weighted cost (FN x20 + FP x1) | **936.0** | 567.0 |
+| Weighted cost per 1,000 parts | **936.0** | 567.0 |
+| Reference: cost of flagging EVERY part | 904 | 904 |
+| Reference: cost of flagging NO part | 1920 | 1920 |
+| False-negative rate | **24.0%** | 8.3% |
+| TP | **73** | 88 |
+| FN (escapes) | **23** | 8 |
+| FP | **476** | 407 |
+| TN | **428** | 497 |
 
 ### Catch rate by defect class (held-out)
 
 | Class | Parts | Flagged (held-out) | Flagged (TRAIN) |
 |---|---:|---:|---:|
-| `LATE_DRIFT` | 24 | **50.0%** | 100.0% |
-| `LEVEL_OUTLIER` | 24 | **83.3%** | 100.0% |
-| `NORMAL` | 904 | **45.8%** | 53.6% |
-| `STEEP_DRIFT` | 24 | **91.7%** | 100.0% |
-| `SUBTLE_MULTIVARIATE` | 24 | **79.2%** | 79.2% |
+| `LATE_DRIFT` | 24 | **54.2%** | 100.0% |
+| `LEVEL_OUTLIER` | 24 | **83.3%** | 91.7% |
+| `NORMAL` | 904 | **52.6%** | 45.0% |
+| `STEEP_DRIFT` | 24 | **95.8%** | 100.0% |
+| `SUBTLE_MULTIVARIATE` | 24 | **70.8%** | 75.0% |
 
 ## Module B: 168h forecast accuracy
 
 | Parameter | Held-out MAE | Held-out RMSE | Linear baseline MAE (held-out) | TRAIN MAE (optimistic) |
 |---|---:|---:|---:|---:|
-| `leakage_current_ua` | **3.3578** | 6.2653 | 5.9695 | 0.8212 |
-| `iddq_ma` | **0.1011** | 0.1351 | 0.6081 | 0.04 |
-| `propagation_delay_ns` | **0.2255** | 0.2828 | 1.6873 | 0.092 |
+| `leakage_current_ua` | **1.9299** | 5.1124 | 5.9695 | 1.4276 |
+| `iddq_ma` | **0.0918** | 0.1260 | 0.6081 | 0.0667 |
+| `propagation_delay_ns` | **0.2059** | 0.2612 | 1.6873 | 0.1516 |
+
+### Module B model selection (nested lot-grouped CV, `python -m evaluation.module_b_study`)
+
+15 candidates (feature set v1/v2 x target raw/drift/log-ratio x LightGBM grid) were
+compared. In each outer fold an inner lot-grouped CV over that fold's training lots picked the
+candidate (choices: v2-log_ratio-g0, v2-log_ratio-g0, v2-log_ratio-g0, v2-log_ratio-g1, v2-log_ratio-g0); it was then scored on the untouched outer lots.
+The production configuration (`v2-log_ratio-g2`, `ml_engine/module_b_config.json`) was chosen
+by lot-grouped CV over all lots, so the fixed-config MAE in the table above is slightly optimistic
+for that choice; the nested column below is the unbiased estimate.
+
+| Parameter | Nested MAE (selection inside CV) | Original model (v1, raw target) | Linear baseline |
+|---|---:|---:|---:|
+| `leakage_current_ua` | **2.0404** | 3.3578 | 5.9695 |
+| `iddq_ma` | **0.0927** | 0.1011 | 0.6081 |
+| `propagation_delay_ns` | **0.2112** | 0.2255 | 1.6873 |

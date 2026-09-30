@@ -46,9 +46,17 @@ def _mad(x: np.ndarray) -> float:
     return float(max(np.median(np.abs(x - med)) * 1.4826, 1e-9))
 
 
-def build_early_features(df: pd.DataFrame) -> pd.DataFrame:
+FEATURE_SETS = ("v1", "v2")
+
+
+def build_early_features(df: pd.DataFrame, feature_set: str = "v1") -> pd.DataFrame:
     """
     Part-level and lot-level features derived ONLY from 0h and 24h readings.
+
+    v1: the original set (values, delta, ratio, 24h slope, distance of 24h/delta from lot median).
+    v2: v1 plus relative delta and lot-relative context from the part's own lot: lot median and
+        scaled MAD of 0h, 24h and delta, robust z-scores of each vs the lot, and values
+        normalised by the lot median.
 
     Returns a frame indexed by component_id with a `lot_id` column plus numeric features.
     Parts missing either early reading are dropped (they cannot receive a Module B forecast).
@@ -74,6 +82,24 @@ def build_early_features(df: pd.DataFrame) -> pd.DataFrame:
         for p in PARAMETERS:
             feats.loc[idx, f"{p}_lot_dist24"] = rows[f"{p}_v24"] - float(np.median(rows[f"{p}_v24"]))
             feats.loc[idx, f"{p}_lot_delta"] = rows[f"{p}_delta"] - float(np.median(rows[f"{p}_delta"]))
+
+    if feature_set == "v2":
+        for p in PARAMETERS:
+            feats[f"{p}_rel_delta"] = feats[f"{p}_delta"] / np.maximum(feats[f"{p}_v0"], 1e-6)
+        for _, idx in feats.groupby("lot_id").groups.items():
+            rows = feats.loc[idx]
+            for p in PARAMETERS:
+                for name in ("v0", "v24", "delta"):
+                    col = rows[f"{p}_{name}"].to_numpy(float)
+                    med, mad = float(np.median(col)), _mad(col)
+                    feats.loc[idx, f"{p}_{name}_lot_median"] = med
+                    feats.loc[idx, f"{p}_{name}_lot_mad"] = mad
+                    feats.loc[idx, f"{p}_{name}_lot_z"] = (col - med) / mad
+                for name in ("v0", "v24"):
+                    med = float(np.median(rows[f"{p}_{name}"]))
+                    feats.loc[idx, f"{p}_{name}_over_lot_median"] = rows[f"{p}_{name}"].to_numpy(float) / max(med, 1e-9)
+    elif feature_set != "v1":
+        raise ValueError(f"unknown feature_set {feature_set!r}; expected one of {FEATURE_SETS}")
 
     feats = feats.set_index("component_id")
     assert_no_future_features(feats.columns)

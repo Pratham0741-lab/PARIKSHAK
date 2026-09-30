@@ -58,6 +58,13 @@ def score(predictions: pd.DataFrame, truth: pd.DataFrame, cost: CostConfig | Non
         "detection": cost_report(y_true.to_numpy(), y_pred.to_numpy(), cost),
     }
 
+    n_def = int(y_true.sum())
+    n_ok = int(len(y_true) - n_def)
+    result["trivial_policies"] = {
+        "flag_all_parts": {"weighted_cost": cost.fp_cost * n_ok, "recall": 1.0 if n_def else 0.0},
+        "flag_no_parts": {"weighted_cost": cost.fn_cost * n_def, "recall": 0.0},
+    }
+
     if "ground_truth_label" in scored.columns:
         per_class = {}
         for label, grp in scored.groupby("ground_truth_label"):
