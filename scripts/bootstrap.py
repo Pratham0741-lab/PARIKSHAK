@@ -89,6 +89,28 @@ def check_and_seed_database() -> None:
         print("[+] Initial predictions and triage verdicts populated.", flush=True)
 
 
+def ensure_judge_model() -> None:
+    """Train the judge-mode model from examples/judge/train.csv if none is active (fresh volume)."""
+    from pathlib import Path
+
+    from backend.app.api.v1.judge import judge_dir
+    from data_engine.tabular import read_table
+    from evaluation.cost import CostConfig
+    from ml_engine import judge
+
+    if judge.JudgeModel.load_active(judge_dir()) is not None:
+        return
+    src = Path(__file__).resolve().parent.parent / "examples" / "judge" / "train.csv"
+    if not src.exists():
+        print(f"[!] No judge model and no {src}; judge mode needs a /judge/train upload.", flush=True)
+        return
+    print(f"[*] Training the judge-mode model from {src.name}...", flush=True)
+    jm, oof, _ = judge.train(read_table(src.read_text(encoding="utf-8")), src.name, CostConfig.from_settings())
+    jm.save(judge_dir())
+    oof.to_csv(judge_dir() / "train_oof_predictions.csv", index=False)
+    print(f"[+] Judge model trained on {src.name}: {jm.info['n_parts']} parts, {jm.info['n_lots']} lots.", flush=True)
+
+
 def start_api_server() -> None:
     """Starts the FastAPI production server using Uvicorn."""
     print("[*] Starting Uvicorn FastAPI server on 0.0.0.0:8000...", flush=True)
@@ -100,6 +122,7 @@ def main() -> None:
     wait_for_postgres()
     run_alembic_migrations()
     check_and_seed_database()
+    ensure_judge_model()
 
     # If --no-server is passed, exit cleanly after initialization
     if "--no-server" in sys.argv:
