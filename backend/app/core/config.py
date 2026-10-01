@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     #             (PS 26170 requires Module B to flag on its own safety-slope rule), decision = union.
     # "joint":    the pair is optimised together for the union (may disable a module entirely).
     THRESHOLD_STRATEGY: str = "separate"
+    # Judge mode guard: a path whose validation flag rate exceeds this ceiling is rejected (ml_engine/judge.py).
+    JUDGE_MAX_FLAG_RATE: float = 0.40
 
     @computed_field
     @property

@@ -93,7 +93,8 @@ def ensure_judge_model() -> None:
     """Train the judge-mode model from examples/judge/train.csv if none is active (fresh volume)."""
     from pathlib import Path
 
-    from backend.app.api.v1.judge import judge_dir
+    from backend.app.api.v1.judge import judge_dir, pretrained_for
+    from backend.app.core.config import settings
     from data_engine.tabular import read_table
     from evaluation.cost import CostConfig
     from ml_engine import judge
@@ -105,10 +106,15 @@ def ensure_judge_model() -> None:
         print(f"[!] No judge model and no {src}; judge mode needs a /judge/train upload.", flush=True)
         return
     print(f"[*] Training the judge-mode model from {src.name}...", flush=True)
-    jm, oof, _ = judge.train(read_table(src.read_text(encoding="utf-8")), src.name, CostConfig.from_settings())
+    table = read_table(src.read_text(encoding="utf-8"))
+    jm, oof, _ = judge.train(table, src.name, CostConfig.from_settings(), pretrained=pretrained_for(table.params),
+                             max_flag_rate=settings.JUDGE_MAX_FLAG_RATE)
     jm.save(judge_dir())
     oof.to_csv(judge_dir() / "train_oof_predictions.csv", index=False)
-    print(f"[+] Judge model trained on {src.name}: {jm.info['n_parts']} parts, {jm.info['n_lots']} lots.", flush=True)
+    print(f"[+] Judge model trained on {src.name}: {jm.info['n_parts']} parts, {jm.info['n_lots']} lots; "
+          f"path: {jm.info['path']}", flush=True)
+    for line in jm.info["banner"]:
+        print(f"    guard: {line}", flush=True)
 
 
 def start_api_server() -> None:

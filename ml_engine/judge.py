@@ -155,9 +155,73 @@ class JudgeModel:
         return JudgeModel(model=ScreeningModel.load(path), info=info)
 
 
+# Small-file policy (fixed in advance, not tuned): below these sizes a file is not used to train Module B.
+MIN_PARTS_FULL_TRAIN = 500
+DEFAULT_MAX_FLAG_RATE = 0.40
+PATH_FULL = "trained on file"
+PATH_CALIBRATED = "pretrained + file-level outlier calibration"
+PATH_PRETRAINED = "pretrained (no calibration)"
+
+
+def _guard(metrics: Dict[str, Any], max_flag_rate: float) -> List[str]:
+    """Reasons a path is rejected: validation cost not below flag-everything, or flag rate above the ceiling."""
+    d = metrics["detection"]
+    reasons = []
+    flag_all = metrics["trivial_policies"]["flag_all_parts"]["weighted_cost"]
+    if d["weighted_cost"] >= flag_all:
+        reasons.append(f"validation cost {d['weighted_cost']:.0f} does not beat flag-everything ({flag_all:.0f})")
+    rate = (d["tp"] + d["fp"]) / d["n"] if d["n"] else 0.0
+    if rate > max_flag_rate:
+        reasons.append(f"flag rate {100 * rate:.1f}% exceeds the {100 * max_flag_rate:.0f}% ceiling")
+    return reasons
+
+
+def _calibrated(pretrained: ScreeningModel, work: pd.DataFrame, truth: pd.DataFrame, primary: str,
+                cost: CostConfig, seed: int, limits) -> tuple[ScreeningModel, pd.DataFrame]:
+    """Pretrained Module B (and its k) unchanged; Module A refitted on the file (lot-relative, label-free) and
+    its threshold chosen on the file's truth. Validation: threshold A chosen on 4 of 5 random part groups and
+    applied to the 5th (out-of-group), so no part's flag uses its own label."""
+    import copy
+
+    from evaluation.thresholds import choose_threshold
+    from ml_engine.module_a_outlier import LotOutlierDetector
+
+    early = early_readings_only(work)
+    early = early[[c for c in early.columns if c not in ("ground_truth_flag", "ground_truth_label")]]
+    m = copy.copy(pretrained)
+    m.module_a = LotOutlierDetector(random_state=seed).fit(early)
+    pred = m.predict(early, limits=limits)
+    pred["component_id"] = pred["component_id"].astype(str)
+    y = truth.reindex(pred["component_id"])["ground_truth_flag"].fillna(False).to_numpy(bool)
+    forced = (pred["module_b_flag"] | pred["observed_static_breach"]).to_numpy(bool)
+    score = pred["module_a_score"].to_numpy(float)
+    groups = within_file_groups(work, seed).drop_duplicates("component_id").set_index("component_id")["lot_id"]
+    g = pred["component_id"].map(groups).to_numpy()
+    oof_flag = np.zeros(len(pred), bool)
+    for grp in np.unique(g):
+        te = g == grp
+        t = choose_threshold(score[~te], y[~te], cost, forced[~te])["threshold"]
+        oof_flag[te] = forced[te] | (score[te] >= t)
+    val_export = export_frame(pred, primary)
+    val_export["Flag"] = val_export["Part_ID"].map(dict(zip(pred["component_id"], oof_flag.astype(int), strict=True)))
+    t_all = choose_threshold(score, y, cost, forced)["threshold"]
+    m.thresholds_ = {**pretrained.thresholds_, "threshold_a": t_all,
+                     "source": "threshold A calibrated on the file; Module B and k pretrained"}
+    return m, val_export
+
+
 def train(table, filename: str, cost: Optional[CostConfig] = None, seed: int = 42,
-          static_limit: Optional[float] = None, progress=lambda msg: None) -> tuple[JudgeModel, pd.DataFrame, pd.DataFrame]:
-    """Returns (model, OOF export, truth table used for the OOF score)."""
+          static_limit: Optional[float] = None, progress=lambda msg: None,
+          pretrained: Optional[ScreeningModel] = None, max_flag_rate: float = DEFAULT_MAX_FLAG_RATE,
+          min_parts: int = MIN_PARTS_FULL_TRAIN) -> tuple[JudgeModel, pd.DataFrame, pd.DataFrame]:
+    """Returns (model, validation export, truth table used for the validation score).
+
+    Paths:
+      1. trained on file - only if the file has >= MIN_LOTS lots and >= min_parts parts (lot-grouped OOF);
+      2. pretrained + file-level outlier calibration (needs `pretrained`, the production pipeline for these
+         parameters). This is the fallback whenever path 1 is not eligible or fails the guard (_guard), and is
+         kept (with the banner) even if it fails the guard too.
+    "pretrained (no calibration)" is validated and reported for reference only; it is never selected."""
     from evaluation.score import score_export
 
     if not table.has_168h:
@@ -168,30 +232,65 @@ def train(table, filename: str, cost: Optional[CostConfig] = None, seed: int = 4
     limits = {primary: static_limit} if static_limit else None
     df = table.df[~table.df["insufficient_data"]].drop(columns=["insufficient_data"])
     df, label_source = training_labels(df, params, table.has_labels, limits)
+    n_parts = int(df["component_id"].nunique())
+    truth = truth_frame(df, params, labels_df=df)
 
     single = table.n_lots < MIN_LOTS
-    work = within_file_groups(df, seed) if single else df
-    n_groups = work["lot_id"].nunique()
-    split = (f"{SINGLE_LOT_NOTE}: {table.n_lots} lot(s) split within the file into {n_groups} random part groups"
-             if single else f"lot-grouped {min(5, n_groups)}-fold over {n_groups} lots")
-    progress(f"out-of-fold evaluation ({split})")
-    res = cross_fit_predict(work, lambda: ScreeningModel(cost=cost, random_state=seed), n_splits=min(5, n_groups), seed=seed)
-    oof_export = export_frame(res.predictions, primary)
-    truth = truth_frame(work, params, labels_df=df)
-    oof_metrics = score_export(oof_export, truth, primary, cost)
+    small = single or n_parts < min_parts
+    candidates = []  # (path, model, validation export, split description)
+    if not small or pretrained is None:
+        work = within_file_groups(df, seed) if single else df
+        n_groups = work["lot_id"].nunique()
+        split = (f"{SINGLE_LOT_NOTE}: {table.n_lots} lot(s) split within the file into {n_groups} random part groups"
+                 if single else f"lot-grouped {min(5, n_groups)}-fold over {n_groups} lots")
+        progress(f"out-of-fold evaluation ({split})")
+        res = cross_fit_predict(work, lambda: ScreeningModel(cost=cost, random_state=seed), n_splits=min(5, n_groups), seed=seed)
+        progress("fitting the final model on the whole file")
+        candidates.append((PATH_FULL, ScreeningModel(cost=cost, random_state=seed).fit(work),
+                           export_frame(res.predictions, primary), split))
+    if pretrained is not None:
+        progress("pretrained Module B + Module A calibrated on the file")
+        m, val = _calibrated(pretrained, df, truth, primary, cost, seed, limits)
+        candidates.append((PATH_CALIBRATED, m, val,
+                           f"threshold A out-of-group over {WITHIN_FILE_GROUPS} random part groups of the file"))
+        early = early_readings_only(df)
+        early = early[[c for c in early.columns if c not in ("ground_truth_flag", "ground_truth_label")]]
+        candidates.append((PATH_PRETRAINED, pretrained, export_frame(pretrained.predict(early, limits=limits), primary),
+                           "whole file (never seen by the pretrained model)"))
 
-    progress("fitting the final model on the whole file")
-    model = ScreeningModel(cost=cost, random_state=seed).fit(work)
+    banner, paths = [], []
+    if small and pretrained is not None:
+        banner.append(f"file too small to train Module B ({table.n_lots} lot(s), {n_parts} parts; needs >= {MIN_LOTS} "
+                      f"lots and >= {min_parts} parts)")
+    chosen = None
+    for path, model, val, split in candidates:
+        metrics = score_export(val, truth, primary, cost)
+        reasons = _guard(metrics, max_flag_rate)
+        d = metrics["detection"]
+        paths.append({"path": path, "evaluation_split": split, "validation_metrics": metrics, "rejected_because": reasons,
+                      "flag_rate": (d["tp"] + d["fp"]) / d["n"] if d["n"] else 0.0, "selectable": path != PATH_PRETRAINED})
+        if chosen is not None or path == PATH_PRETRAINED:
+            continue
+        if not reasons:
+            chosen = (path, model, val, split, metrics)
+        elif path == PATH_CALIBRATED or len(candidates) == 1:  # the fallback is kept even when it fails the guard
+            chosen = (path, model, val, split, metrics)
+            banner.append(f"{path}: " + "; ".join(reasons) + " - used anyway (fallback path)")
+        else:
+            banner.append(f"{path}: " + "; ".join(reasons) + f" - falling back to '{PATH_CALIBRATED}'")
+    path, model, val, split, metrics = chosen
+
     info = {
-        "file": filename, "data_sha256": table.sha256, "n_parts": int(df["component_id"].nunique()),
+        "file": filename, "data_sha256": table.sha256, "n_parts": n_parts,
         "n_lots": int(table.n_lots), "n_parts_excluded_insufficient": int(table.df.loc[table.df["insufficient_data"], "component_id"].nunique()),
         "parameters": params, "primary_parameter": primary, "static_limit_override": static_limit,
         "label_source": label_source, "rule": {"id": RULE_ID, "text": RULE_TEXT},
-        "evaluation_split": split, "single_lot": single, "oof_metrics": oof_metrics,
+        "path": path, "paths_tried": paths, "banner": banner, "max_flag_rate": max_flag_rate,
+        "evaluation_split": split, "single_lot": single, "oof_metrics": metrics,
         "thresholds": {k: model.thresholds_.get(k) for k in ("threshold_a", "threshold_b", "source")},
         "cost_config": cost.as_dict(), "seed": seed, "trained_at": datetime.now(UTC).isoformat(),
     }
-    return JudgeModel(model=model, info=info), oof_export, truth
+    return JudgeModel(model=model, info=info), val, truth
 
 
 def truth_frame(df: pd.DataFrame, params: List[str], labels_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:

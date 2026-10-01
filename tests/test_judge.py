@@ -18,6 +18,7 @@ from evaluation.cost import CostConfig
 from evaluation.rules import Z_CUT, apply_rule
 from ml_engine import judge
 from ml_engine.features import PARAMETERS
+from ml_engine.screening import ScreeningModel
 
 
 def wide_csv(df: pd.DataFrame, hours=(0, 24, 96, 168), params=PARAMETERS, labels=False) -> str:
@@ -153,3 +154,24 @@ async def test_api_train_predict_score_matches_cli(client, data, tmp_path, capsy
         assert cli[key] == ui[key], key
     assert ui["truth_source"] == "file labels"
     assert np.isfinite(ui["regression"]["mae"])
+
+
+def test_small_file_uses_pretrained_with_file_calibration_and_guard_banner(data):
+    train_df, _ = data
+    pretrained = ScreeningModel(random_state=0).fit(PhysicsBurnInGenerator(num_lots=6, components_per_lot=40,
+                                                                           random_seed=99).generate_dataset())
+    one = train_df[train_df["lot_id"] == sorted(train_df["lot_id"].unique())[0]]
+    jm, _, _ = judge.train(read_table(wide_csv(one)), "one.csv", CostConfig(), pretrained=pretrained, max_flag_rate=0.0)
+    assert jm.info["path"] == judge.PATH_CALIBRATED
+    assert jm.model.module_b is pretrained.module_b  # Module B is the pretrained one
+    assert jm.model.thresholds_["threshold_b"] == pretrained.thresholds_["threshold_b"]
+    assert any("too small" in b for b in jm.info["banner"]) and any("ceiling" in b for b in jm.info["banner"])
+    assert {p["path"] for p in jm.info["paths_tried"]} == {judge.PATH_CALIBRATED, judge.PATH_PRETRAINED}
+
+
+def test_guard_rejects_costly_or_high_flag_rate_paths():
+    m = {"detection": {"tp": 5, "fp": 50, "fn": 0, "tn": 45, "n": 100, "weighted_cost": 50.0},
+         "trivial_policies": {"flag_all_parts": {"weighted_cost": 95.0}}}
+    assert judge._guard(m, 0.40) == ["flag rate 55.0% exceeds the 40% ceiling"]
+    m["detection"]["weighted_cost"] = 95.0
+    assert len(judge._guard(m, 0.60)) == 1 and "flag-everything" in judge._guard(m, 0.60)[0]

@@ -128,7 +128,13 @@ export const JudgeScreen: React.FC = () => {
             <div className="text-main" data-testid="trained-on">Trained on <strong>{model.file}</strong>, {model.n_parts} parts, {model.n_lots} lots
               <span className="text-muted"> (sha256 {model.data_sha256.slice(0, 12)}…, parameters {model.parameters.join(', ')})</span></div>
             <div>Labels used for thresholds: <strong>{model.label_source}</strong></div>
-            <div className={model.single_lot ? 'text-review font-bold' : ''}>Honest estimate: out-of-fold, {model.evaluation_split}</div>
+            <div className="text-main" data-testid="judge-path">Path: <strong>{model.path}</strong></div>
+            {model.banner?.length > 0 && (
+              <div className="border border-review bg-review-bg text-review p-2" role="status" data-testid="judge-banner">
+                {model.banner.map(b => <div key={b}>{b}</div>)}
+              </div>
+            )}
+            <div className={model.single_lot ? 'text-review font-bold' : ''}>Honest estimate (validation): {model.evaluation_split}</div>
             <div className="text-muted">Thresholds: Module A {num(model.thresholds.threshold_a, 3)}, Module B k {num(model.thresholds.threshold_b, 3)} ({model.thresholds.source})</div>
             <MetricsBlock m={model.oof_metrics} />
           </div>

@@ -20,6 +20,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from backend.app.core.config import settings
 from backend.app.services.screening_service import artifact_path
 from data_engine.tabular import TableError, read_table
 from evaluation.cost import CostConfig
@@ -48,6 +49,16 @@ def clean(o: Any) -> Any:
     if isinstance(o, float) and not math.isfinite(o):
         return None
     return o
+
+
+def pretrained_for(params):
+    """The production pipeline for these parameters (Module B for small files), or None if there is none yet."""
+    from backend.app.services.screening_service import model_for_parameters
+
+    try:
+        return model_for_parameters(params)
+    except (FileNotFoundError, ValueError):
+        return None
 
 
 def judge_dir() -> Path:
@@ -91,7 +102,8 @@ def _run_training(job_id: str, text: str, filename: str, static_limit: Optional[
     try:
         table = read_table(text)
         jm, oof_export, _ = judge.train(table, filename, CostConfig.from_settings(), static_limit=static_limit,
-                                        progress=progress)
+                                        progress=progress, pretrained=pretrained_for(table.params),
+                                        max_flag_rate=settings.JUDGE_MAX_FLAG_RATE)
         with _LOCK:
             jm.save(judge_dir())
             oof_export.to_csv(judge_dir() / "train_oof_predictions.csv", index=False)

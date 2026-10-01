@@ -23,6 +23,8 @@ export interface JudgeModelInfo {
   file: string; data_sha256: string; n_parts: number; n_lots: number; n_parts_excluded_insufficient: number;
   parameters: string[]; primary_parameter: string; label_source: string; evaluation_split: string;
   single_lot: boolean; oof_metrics: JudgeMetrics; trained_at: string;
+  path: string; banner: string[]; max_flag_rate: number;
+  paths_tried: { path: string; flag_rate: number; rejected_because: string[] }[];
   thresholds: { threshold_a: number | null; threshold_b: number | null; source: string };
 }
 export interface JudgeJob { id: string; state: 'running' | 'done' | 'failed'; message: string; file: string; model?: JudgeModelInfo }
