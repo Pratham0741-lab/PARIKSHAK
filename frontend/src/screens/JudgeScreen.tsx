@@ -25,7 +25,7 @@ const FilePick: React.FC<{ label: string; disabled?: boolean; onFile: (text: str
           e.target.value = '';
         }} />
       <button disabled={disabled} onClick={() => ref.current?.click()}
-        className="bg-toprail text-white px-2.5 py-1 flex items-center gap-1 disabled:opacity-40"><Upload size={12} /> {label}</button>
+        className="bg-accent hover:bg-accent-hover text-white rounded-lg px-3 py-1.5 flex items-center gap-1 font-medium disabled:opacity-40"><Upload size={12} /> {label}</button>
     </>
   );
 };
@@ -111,15 +111,15 @@ export const JudgeScreen: React.FC = () => {
 
   const scoreTruth = (text: string, name: string) => guard(async () => setScore(await judgeApi.score(text, name)))();
 
-  if (offline) return <div className="p-4 font-mono text-xs text-review">Judge mode needs the backend (training and scoring run there). Switch data source to Backend.</div>;
+  if (offline) return <div className="text-sm text-review">Judge mode needs the backend (training and scoring run there). Switch data source to Backend.</div>;
 
   return (
-    <div className="w-full h-full overflow-auto bg-workspace font-mono text-xs p-4 space-y-4">
+    <div className="text-sm space-y-4" data-testid="judge-panel">
       {error && <div className="border border-reject/40 bg-reject-bg text-reject p-2" role="alert">{error}</div>}
 
-      <section className="border border-hairline bg-panel p-3 space-y-2">
+      <section className="border border-hairline rounded-lg bg-panel p-4 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="font-bold text-sm text-main">1. Train (file with 168h readings; labels optional)</span>
+          <span className="font-semibold text-md text-main">1. Train (file with 168h readings; labels optional)</span>
           <FilePick label="Train on CSV" disabled={!!job} onFile={train} />
         </div>
         {job && <div className="text-review">Training {job}</div>}
@@ -153,9 +153,9 @@ export const JudgeScreen: React.FC = () => {
         )}
       </section>
 
-      <section className="border border-hairline bg-panel p-3 space-y-2">
+      <section className="border border-hairline rounded-lg bg-panel p-4 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="font-bold text-sm text-main">2. Predict (0h/24h; 96h and 168h are ignored if present)</span>
+          <span className="font-semibold text-md text-main">2. Predict (0h/24h; 96h and 168h are ignored if present)</span>
           <div className="flex gap-2">
             <FilePick label="Predict from CSV" disabled={!model} onFile={predict} />
             {pred && <a href={judgeApi.exportUrl} className="border border-hairline px-2.5 py-1 flex items-center gap-1 text-main"><Download size={12} /> preds.csv</a>}
@@ -192,9 +192,9 @@ export const JudgeScreen: React.FC = () => {
         )}
       </section>
 
-      <section className="border border-hairline bg-panel p-3 space-y-2">
+      <section className="border border-hairline rounded-lg bg-panel p-4 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="font-bold text-sm text-main">3. Score against ground truth</span>
+          <span className="font-semibold text-md text-main">3. Score against ground truth</span>
           <FilePick label="Upload truth CSV" disabled={!pred} onFile={scoreTruth} />
         </div>
         <div className="text-muted">Truth file: the same parts with 168h readings. It uses the file's labels if it has them, else {rule?.id ?? 'the labels-free rule'}.</div>

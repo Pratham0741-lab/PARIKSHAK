@@ -188,7 +188,7 @@ export const BarChart: React.FC<{
   threshold?: { value: number; label: string }; height?: number; format?: (v: number) => string; onClick?: (key: string) => void; testId?: string;
 }> = ({ bars, yLabel, xLabel, threshold, height = 280, format = v => String(v), onClick, testId }) => {
   const [ref, width] = useWidth<HTMLDivElement>();
-  const m = { top: 14, right: 16, bottom: 56, left: 52 };
+  const m = { top: 14, right: 16, bottom: 78, left: 52 };
   if (bars.length === 0) return <div ref={ref} className="text-sm text-muted py-6 text-center">No lots.</div>;
   const x = d3.scaleBand().domain(bars.map(b => b.key)).range([m.left, width - m.right]).padding(0.25);
   const y = d3.scaleLinear().domain([0, Math.max(d3.max(bars, b => b.value) ?? 0, threshold?.value ?? 0) * 1.1 || 1]).nice().range([height - m.bottom, m.top]);

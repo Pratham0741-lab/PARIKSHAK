@@ -51,7 +51,7 @@ const SystemBlock: React.FC = () => {
     return () => { alive = false; clearInterval(t); };
   }, [mode]);
 
-  const tag = location.pathname.startsWith('/model') && judgeSource ? judgeSource : sourceTag(activeLot, mode);
+  const tag = sourceTag(activeLot, mode) + (location.pathname.startsWith('/model') && judgeSource ? ` · judge mode: ${judgeSource}` : '');
 
   // Debug: recompute visible metrics and lot counts from raw rows (backend /debug/recompute) and compare.
   const runRecompute = async () => {

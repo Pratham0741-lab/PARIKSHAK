@@ -5,10 +5,10 @@ import { OverviewScreen } from './screens/OverviewScreen';
 import { LotAnalysisScreen } from './screens/LotAnalysisScreen';
 import { PartDetailScreen } from './screens/PartDetailScreen';
 import { ReviewQueueScreen } from './screens/ReviewQueueScreen';
-import { ModelPerformanceScreen } from './screens/ModelPerformanceScreen';
+import { ModelScreen } from './screens/ModelScreen';
 import { DataIngestScreen } from './screens/DataIngestScreen';
 import { AuditReportScreen } from './screens/AuditReportScreen';
-import { OutlierDetectionScreen } from './screens/OutlierDetectionScreen';
+import { TrendsScreen } from './screens/TrendsScreen';
 
 export const App: React.FC = () => (
   <BrowserRouter>
@@ -19,8 +19,8 @@ export const App: React.FC = () => (
         <Route path="part" element={<PartDetailScreen />} />
         <Route path="part/:id" element={<PartDetailScreen />} />
         <Route path="review" element={<ReviewQueueScreen />} />
-        <Route path="trends" element={<OutlierDetectionScreen />} />
-        <Route path="model" element={<ModelPerformanceScreen />} />
+        <Route path="trends" element={<TrendsScreen />} />
+        <Route path="model" element={<ModelScreen />} />
         <Route path="ingest" element={<DataIngestScreen />} />
         <Route path="reports" element={<AuditReportScreen />} />
         {/* old routes */}
