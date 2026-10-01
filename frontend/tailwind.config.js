@@ -7,6 +7,9 @@ export default {
   theme: {
     extend: {
       colors: {
+        navy: { DEFAULT: "var(--navy)", deep: "var(--navy-deep)" },
+        cyan: "var(--cyan)",
+        accent: { DEFAULT: "var(--accent)", hover: "var(--accent-hover)" },
         workspace: "var(--surface-workspace)",
         panel: "var(--surface-panel)",
         toprail: "var(--surface-toprail)",
@@ -18,36 +21,25 @@ export default {
         main: "var(--text-main)",
         muted: "var(--text-muted)",
         dim: "var(--text-dim)",
-        reject: {
-          DEFAULT: "var(--status-reject)",
-          bg: "var(--status-reject-bg)",
-        },
-        review: {
-          DEFAULT: "var(--status-review)",
-          bg: "var(--status-review-bg)",
-        },
-        accept: {
-          DEFAULT: "var(--status-accept)",
-          bg: "var(--status-accept-bg)",
-        },
+        reject: { DEFAULT: "var(--status-reject)", bg: "var(--status-reject-bg)" },
+        review: { DEFAULT: "var(--status-review)", bg: "var(--status-review-bg)" },
+        accept: { DEFAULT: "var(--status-accept)", bg: "var(--status-accept-bg)" },
+        info: { DEFAULT: "var(--status-info)", bg: "var(--status-info-bg)" },
         trace: {
           neutral: "var(--chart-trace-neutral)",
           selected: "var(--chart-trace-selected)",
         },
       },
       fontFamily: {
-        sans: ["'IBM Plex Sans'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "Roboto", "sans-serif"],
-        mono: ["'IBM Plex Mono'", "Menlo", "Monaco", "Consolas", "'Liberation Mono'", "monospace"],
+        sans: ["'Noto Sans'", "'Nunito Sans'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "Roboto", "sans-serif"],
+        mono: ["'Noto Sans Mono'", "Menlo", "Consolas", "monospace"],
       },
       borderRadius: {
-        DEFAULT: "2px",
-        none: "0px",
-        sm: "2px",
-        md: "2px",
-        lg: "2px",
-      },
-      boxShadow: {
-        none: "none",
+        DEFAULT: "6px",
+        sm: "4px",
+        md: "6px",
+        lg: "8px",
+        card: "12px",
       },
       fontSize: {
         'xxs': '10px',
@@ -56,12 +48,11 @@ export default {
         'base': '13px',
         'md': '14px',
         'lg': '16px',
+        'card': ['18px', '24px'],
+        'title': ['28px', '34px'],
       },
       height: {
-        'row': '28px',
-      },
-      lineHeight: {
-        'tight': '1.25',
+        'row': '32px',
       },
     },
   },

@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import { createApi, initialMode, ParikshakApi, persistMode } from '../data/api';
+import { Costs, createApi, initialMode, ParikshakApi, persistMode } from '../data/api';
 import { DEFAULT_OFFLINE_SETTINGS, OfflineDemoApi, OfflineDemoSettings } from '../data/offlineDemo';
 import {
   ApiMode, AuditEvent, BenchmarkMetrics, CostCurve, Explanation, IngestOptions, IngestResult, Lot, Part, PartStatus, Prediction,
@@ -64,7 +64,7 @@ interface ParikshakStore {
   closeDecisionDialog: () => void;
   submitDecision: (status: PartStatus, comment: string, partIds: string[]) => Promise<void>;
   loadExplanation: (partId: string) => Promise<void>;
-  loadMetrics: () => Promise<void>;
+  loadMetrics: (costs?: Costs) => Promise<void>;
   setMode: (mode: ApiMode) => Promise<void>;
   updateOfflineSettings: (s: Partial<OfflineDemoSettings>) => Promise<void>;
   setInspector: (name: string) => void;
@@ -182,10 +182,10 @@ export const useStore = create<ParikshakStore>((set, get) => {
       }
     },
 
-    loadMetrics: async () => {
+    loadMetrics: async (costs?: Costs) => {
       const { api } = get();
       try {
-        const [metrics, A, B] = await Promise.all([api.getMetrics(), api.getCostCurve('A'), api.getCostCurve('B')]);
+        const [metrics, A, B] = await Promise.all([api.getMetrics(costs), api.getCostCurve('A', costs), api.getCostCurve('B', costs)]);
         set({ metrics, costCurves: { A, B } });
       } catch (e) {
         set({ error: `Could not load metrics: ${errorText(e)}` });

@@ -154,7 +154,7 @@ export class OfflineDemoApi {
       createdAt: new Date().toISOString(), totalParts: this.parts.length,
       passCount: count('Accept'), reviewCount: count('Review'), rejectCount: count('Reject'),
       temperatureC: null, testParameter: 'leakage_current_ua', unit: 'uA', staticLimit: settings.staticLimitUa,
-      conditionsAssumed: ['temperature_c'], sourceDetail: { kind: 'OFFLINE_DEMO', generator: 'offline-demo', seed: settings.seed },
+      conditionsAssumed: ['temperature_c'], moduleAFlagCount: null, moduleBFlagCount: null, supplier: null, sourceDetail: { kind: 'OFFLINE_DEMO', generator: 'offline-demo', seed: settings.seed },
     };
     this.audit = [{
       id: `offline-${Date.now()}`, timestamp: new Date().toISOString(), actor: 'offline-demo', category: 'SYSTEM',

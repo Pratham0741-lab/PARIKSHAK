@@ -25,13 +25,17 @@ export interface ParikshakApi {
   getExplanation(partId: string): Promise<Explanation | null>;
   submitDecision(decision: Decision): Promise<void>;
   getAuditLog(lotId?: string): Promise<AuditEvent[]>;
-  getMetrics(): Promise<BenchmarkMetrics | null>;
-  getCostCurve(module: 'A' | 'B'): Promise<CostCurve | null>;
+  getMetrics(costs?: Costs): Promise<BenchmarkMetrics | null>;
+  getCostCurve(module: 'A' | 'B', costs?: Costs): Promise<CostCurve | null>;
   validateCsv(csv: string): Promise<IngestSummary>;
   ingestCsv(csv: string, lotNumber?: string, actor?: string, opts?: IngestOptions): Promise<IngestResult>;
 }
 
 const STREAM_THRESHOLD = 2_000_000; // characters; above this the CSV is sent to /ingest/stream
+/** Optional FN/FP cost weights passed to the metrics endpoints (defaults come from the backend settings). */
+export interface Costs { fnCost?: number; fpCost?: number }
+const costQuery = (c?: Costs) => (c?.fnCost != null ? `&fn_cost=${c.fnCost}` : '') + (c?.fpCost != null ? `&fp_cost=${c.fpCost}` : '');
+
 export const DEFAULT_API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000/api/v1';
 const BUILD_MODE: ApiMode = (import.meta.env.VITE_API_MODE as string | undefined) === 'offline' ? 'offline' : 'http';
 const MODE_KEY = 'parikshak.apiMode';
@@ -290,6 +294,7 @@ export class HttpApi implements ParikshakApi {
       reviewCount: l.review_count, rejectCount: l.reject_count,
       temperatureC: num(l.temperature_c), testParameter: l.test_parameter ?? null, unit: l.unit ?? null,
       staticLimit: num(l.static_limit), conditionsAssumed: l.conditions_assumed ?? [], sourceDetail: l.source_detail ?? null,
+      moduleAFlagCount: num(l.module_a_flag_count), moduleBFlagCount: num(l.module_b_flag_count), supplier: l.supplier ?? null,
     }));
   }
 
@@ -329,8 +334,8 @@ export class HttpApi implements ParikshakApi {
     }));
   }
 
-  async getMetrics(): Promise<BenchmarkMetrics | null> {
-    const m = await this.req<Json>('/metrics/benchmark');
+  async getMetrics(costs?: Costs): Promise<BenchmarkMetrics | null> {
+    const m = await this.req<Json>(`/metrics/benchmark?x=1${costQuery(costs)}`);
     return {
       totalComponents: m.total_components, excludedWithoutGroundTruth: m.excluded_without_ground_truth,
       tp: m.true_positives, fp: m.false_positives, fn: m.false_negatives, tn: m.true_negatives,
@@ -342,8 +347,8 @@ export class HttpApi implements ParikshakApi {
     };
   }
 
-  async getCostCurve(module: 'A' | 'B'): Promise<CostCurve | null> {
-    const c = await this.req<Json>(`/metrics/cost-curve?module=${module}&points=40`);
+  async getCostCurve(module: 'A' | 'B', costs?: Costs): Promise<CostCurve | null> {
+    const c = await this.req<Json>(`/metrics/cost-curve?module=${module}&points=40${costQuery(costs)}`);
     return {
       module,
       chosenThreshold: num(c.chosen_threshold),

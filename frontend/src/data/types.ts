@@ -61,6 +61,10 @@ export interface Lot {
   passCount: number;
   reviewCount: number;
   rejectCount: number;
+  /** Parts flagged by Module A (lot-relative outlier) / Module B (drift); null when not provided (offline demo). */
+  moduleAFlagCount: number | null;
+  moduleBFlagCount: number | null;
+  supplier: string | null;
   /** Burn-in test conditions (data). Fields listed in conditionsAssumed were defaulted, not supplied. */
   temperatureC: number | null;
   testParameter: string | null;
