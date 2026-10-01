@@ -3,12 +3,14 @@ import * as d3 from 'd3';
 import { useStore } from '../store/useStore';
 import { StatusMarker } from '../components/common/StatusMarker';
 import { findSimilarParts } from '../lib/analytics/explainability';
-import { PARAMS, PARAM_LABEL, PARAM_UNIT, Param } from '../data/types';
+import { PARAMS, PARAM_LABEL, PARAM_UNIT, Param, lotLimit, lotParam } from '../data/types';
 
 const f = (v: number | null | undefined, nd = 3) => (v == null ? '–' : v.toFixed(nd));
 
 export const ComponentDetailScreen: React.FC = () => {
-  const { parts, predictions, selectedPartId, explanations, loadExplanation, config, openDecisionDialog, mode } = useStore();
+  const { parts, predictions, selectedPartId, explanations, loadExplanation, config, openDecisionDialog, mode, activeLot } = useStore();
+  const param = lotParam(activeLot);
+  const unit = PARAM_UNIT[param];
   const part = parts.find(p => p.partId === selectedPartId) ?? parts[0] ?? null;
   const pred = part ? predictions[part.partId] : undefined;
   const exp = part ? explanations[part.partId] : undefined;
@@ -51,16 +53,16 @@ export const ComponentDetailScreen: React.FC = () => {
                     <td className="text-muted">{PARAM_LABEL[p]} ({PARAM_UNIT[p]})</td>
                     {[0, 24, 96, 168].map(t => {
                       const r = part.allReadings.find(x => x.intervalHours === t);
-                      return <td key={t} className="text-right tabular-nums">{r ? r.values[p].toFixed(3) : '–'}{r?.imputed.includes(p) ? '*' : ''}</td>;
+                      return <td key={t} className="text-right tabular-nums">{r && r.values[p] != null ? r.values[p].toFixed(3) : '–'}{r?.imputed.includes(p) ? '*' : ''}</td>;
                     })}
                   </tr>
                 ))}
               </tbody>
             </table>
             {part.allReadings.some(r => r.imputed.length) && <div className="text-[10px] text-review mt-1 font-sans">* imputed at ingest (lot median; display only). Part marked insufficient data.</div>}
-            <MiniTrajectory readings={part.readings} forecast={pred?.moduleB?.perParam.leakage_current_ua?.forecast168h ?? null}
-              lower={pred?.moduleB?.perParam.leakage_current_ua?.intervalLower ?? null} upper={pred?.moduleB?.perParam.leakage_current_ua?.intervalUpper ?? null}
-              limit={config?.datasheetLimits.leakage_current_ua ?? null} />
+            <MiniTrajectory readings={part.readings} forecast={pred?.moduleB?.perParam[param]?.forecast168h ?? null}
+              lower={pred?.moduleB?.perParam[param]?.intervalLower ?? null} upper={pred?.moduleB?.perParam[param]?.intervalUpper ?? null}
+              limit={lotLimit(activeLot, param, config?.datasheetLimits)} />
           </Panel>
 
           <Panel title="Module A decomposition: robust z vs own lot (score = sum of positive z)">
@@ -98,9 +100,9 @@ export const ComponentDetailScreen: React.FC = () => {
             {exp?.cvFold != null && <div className="text-[10px] text-muted mt-1 font-sans">Out-of-fold prediction (lot fold {exp.cvFold}).</div>}
           </Panel>
 
-          <Panel title="Parts with the most similar 0h/24h leakage (current dispositions)">
+          <Panel title={`Parts with the most similar 0h/24h ${PARAM_LABEL[param]} (current dispositions)`}>
             <table className="w-full">
-              <thead className="text-muted text-[11px]"><tr><th className="text-left">Part</th><th className="text-right">0h µA</th><th className="text-right">24h µA</th><th className="text-right">Distance</th><th className="pl-3 text-left">Status</th></tr></thead>
+              <thead className="text-muted text-[11px]"><tr><th className="text-left">Part</th><th className="text-right">0h {unit}</th><th className="text-right">24h {unit}</th><th className="text-right">Distance</th><th className="pl-3 text-left">Status</th></tr></thead>
               <tbody>
                 {similar.map(s => (
                   <tr key={s.partId}><td>{s.partId}</td><td className="text-right">{f(s.leakage0h, 2)}</td><td className="text-right">{f(s.leakage24h, 2)}</td><td className="text-right">{s.distance}</td><td className="pl-3"><StatusMarker status={s.status} /></td></tr>

@@ -201,6 +201,13 @@ async def test_single_parameter_ingest_screens_with_absent_parameters_dropped(cl
         assert body["screening"]["n_screened"] == 41
         lot = next(lt for lt in (await client.get("/api/v1/lots")).json() if lt["id"] == lot_id)
         assert lot["source_detail"]["parameters_used"] == list(params)
+        if len(params) == 1:  # the lot is charted on its own parameter, with that parameter's unit and limit
+            from ml_engine.verdict_engine import ScreeningVerdictEngine
+            assert lot["test_parameter"] == params[0]
+            assert lot["unit"] == {"leakage_current_ua": "uA", "iddq_ma": "mA", "propagation_delay_ns": "ns"}[params[0]]
+            assert lot["static_limit"] == ScreeningVerdictEngine.datasheet_limits()[params[0]]
+        parts = await client.get(f"/api/v1/lots/{lot_id}/parts")  # the UI's lot view
+        assert parts.status_code == 200 and len(parts.json()) == 41
         comps = (await client.get("/api/v1/components", params={"lot_id": lot_id, "page_size": 100})).json()["items"]
         latent = next(c for c in comps if c["serial_number"] == "LATENT-001")
         prof = (await client.get(f"/api/v1/components/{latent['id']}/profile")).json()
@@ -209,6 +216,7 @@ async def test_single_parameter_ingest_screens_with_absent_parameters_dropped(cl
         for p in P:  # absent parameters: no forecast (never a number made up from missing inputs)
             assert (pred[f"pred_{short[p]}_168h"] is None) == (p not in params)
         assert pred["verdict"] in ("REVIEW", "REJECT")  # 3x the lot level on the present parameter(s)
+        assert "model_beats_flag_all" in body["screening"]
         ex = await client.get(f"/api/v1/components/{latent['id']}/explain")
         assert ex.status_code == 200
     finally:

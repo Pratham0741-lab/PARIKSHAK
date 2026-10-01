@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import * as d3 from 'd3';
 import { useStore } from '../store/useStore';
-import { PARAMS, PARAM_LABEL, PARAM_UNIT } from '../data/types';
+import { PARAMS, PARAM_LABEL, PARAM_UNIT, lotLimit, lotParam } from '../data/types';
 
 type Metric = 'score' | 'mahalanobis' | 'isolation';
 const METRIC_LABEL: Record<Metric, string> = {
@@ -11,11 +11,12 @@ const METRIC_LABEL: Record<Metric, string> = {
 };
 
 export const OutlierDetectionScreen: React.FC = () => {
-  const { parts, predictions, selectedPartId, selectPart, config, mode } = useStore();
+  const { parts, predictions, selectedPartId, selectPart, config, mode, activeLot } = useStore();
+  const param = lotParam(activeLot);
   const [metric, setMetric] = useState<Metric>('score');
   const [whatIf, setWhatIf] = useState<number | null>(null);
   const [onlyFlagged, setOnlyFlagged] = useState(true);
-  const staticLimit = config?.datasheetLimits.leakage_current_ua ?? null;
+  const staticLimit = lotLimit(activeLot, param, config?.datasheetLimits);
 
   const rows = useMemo(() => parts.map(p => {
     const a = predictions[p.partId]?.moduleA ?? null;
@@ -84,7 +85,7 @@ export const OutlierDetectionScreen: React.FC = () => {
         <div className="flex-1 overflow-y-auto border border-hairline">
           <table className="w-full text-left">
             <thead className="sticky top-0 bg-panel text-muted text-[11px]">
-              <tr><th className="px-2">Part</th><th className="px-2 text-right">Score</th>{PARAMS.map(p => <th key={p} className="px-2 text-right">z {PARAM_LABEL[p]}</th>)}<th className="px-2 text-right">24h leakage</th><th className="px-2">Static limit</th></tr>
+              <tr><th className="px-2">Part</th><th className="px-2 text-right">Score</th>{PARAMS.map(p => <th key={p} className="px-2 text-right">z {PARAM_LABEL[p]}</th>)}<th className="px-2 text-right">24h {PARAM_LABEL[param]} ({PARAM_UNIT[param]})</th><th className="px-2">Static limit</th></tr>
             </thead>
             <tbody>
               {listed.map(r => (
@@ -109,7 +110,7 @@ export const OutlierDetectionScreen: React.FC = () => {
               <div className="flex justify-between"><span className="text-muted">Decision score</span><span className={sel.a.flag ? 'text-reject font-bold' : ''}>{sel.a.score.toFixed(3)}</span></div>
               <div className="flex justify-between"><span className="text-muted">Learned threshold</span><span>{sel.a.threshold == null ? 'module off' : sel.a.threshold.toFixed(3)}</span></div>
               <div className="flex justify-between"><span className="text-muted">Module A flag</span><span className={sel.a.flag ? 'text-reject font-bold' : 'text-accept'}>{sel.a.flag ? 'LOT OUTLIER' : 'no'}</span></div>
-              <div className="flex justify-between"><span className="text-muted">Static limit (0h/24h)</span><span className={sel.passesStatic ? 'text-accept' : 'text-reject'}>{sel.passesStatic ? `passes (${staticLimit} µA)` : 'BREACH'}</span></div>
+              <div className="flex justify-between"><span className="text-muted">Static limit (0h/24h)</span><span className={sel.passesStatic ? 'text-accept' : 'text-reject'}>{sel.passesStatic ? `passes (${staticLimit} ${PARAM_UNIT[param]})` : 'BREACH'}</span></div>
               {sel.a.mahalanobis != null && <div className="flex justify-between"><span className="text-muted">Mahalanobis (diag.)</span><span>{sel.a.mahalanobis.toFixed(2)}</span></div>}
               {sel.a.isolation != null && <div className="flex justify-between"><span className="text-muted">Isolation score (diag.)</span><span>{sel.a.isolation.toFixed(2)}</span></div>}
             </div>

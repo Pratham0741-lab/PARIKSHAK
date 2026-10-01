@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/useStore';
 import { Sparkline } from '../components/common/Sparkline';
 import { DriftTracePlot } from '../components/drift/DriftTracePlot';
-import { PARAMS, PARAM_LABEL, PARAM_UNIT } from '../data/types';
+import { PARAMS, PARAM_LABEL, PARAM_UNIT, lotLimit, lotParam } from '../data/types';
 import { Search } from 'lucide-react';
 
 const f = (v: number | null | undefined, nd = 3) => (v == null ? '–' : v.toFixed(nd));
@@ -18,14 +18,16 @@ function commonDashPrefix(ids: string[]): string {
 }
 
 export const DriftPredictorScreen: React.FC = () => {
-  const { parts, predictions, selectedPartId, selectPart, config, mode } = useStore();
+  const { parts, predictions, selectedPartId, selectPart, config, mode, activeLot } = useStore();
+  const param = lotParam(activeLot);
+  const unit = PARAM_UNIT[param];
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'flagged' | 'moduleB'>('all');
   const [yAxisMode, setYAxisMode] = useState<'linear' | 'log'>('linear');
   const [showPredicted, setShowPredicted] = useState(true);
   const [showInterval, setShowInterval] = useState(true);
   const [showSafetySlope, setShowSafetySlope] = useState(true);
-  const staticLimit = config?.datasheetLimits.leakage_current_ua ?? null;
+  const staticLimit = lotLimit(activeLot, param, config?.datasheetLimits);
 
   const filtered = useMemo(() => parts.filter(p => {
     if (!p.partId.toLowerCase().includes(search.toLowerCase())) return false;
@@ -37,7 +39,7 @@ export const DriftPredictorScreen: React.FC = () => {
   const part = parts.find(p => p.partId === selectedPartId) ?? parts[0] ?? null;
   const pred = part ? predictions[part.partId] ?? null : null;
   const b = pred?.moduleB ?? null;
-  const leak = b?.perParam.leakage_current_ua ?? null;
+  const leak = b?.perParam[param] ?? null;
 
   const prefix = useMemo(() => commonDashPrefix(parts.map(p => p.partId)), [parts]);
   const listRef = useRef<HTMLDivElement>(null);
@@ -61,7 +63,7 @@ export const DriftPredictorScreen: React.FC = () => {
           <div style={{ height: virt.getTotalSize(), position: 'relative' }}>
             {virt.getVirtualItems().map(vr => {
               const p = filtered[vr.index];
-              const fc = predictions[p.partId]?.moduleB?.perParam.leakage_current_ua?.forecast168h ?? null;
+              const fc = predictions[p.partId]?.moduleB?.perParam[param]?.forecast168h ?? null;
               return (
                 <div key={p.id} onClick={() => selectPart(p.partId)}
                   style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: vr.size, transform: `translateY(${vr.start}px)` }}
@@ -90,7 +92,7 @@ export const DriftPredictorScreen: React.FC = () => {
           </div>
         </div>
         <div className="flex-1 min-h-0">
-          <DriftTracePlot parts={filtered} selectedPart={part} prediction={pred} staticLimit={staticLimit} yAxisMode={yAxisMode}
+          <DriftTracePlot param={param} parts={filtered} selectedPart={part} prediction={pred} staticLimit={staticLimit} yAxisMode={yAxisMode}
             showPredicted={showPredicted} showInterval={showInterval} showSafetySlope={showSafetySlope} onSelectPart={selectPart} />
         </div>
         <div className="h-[26px] border-t border-hairline bg-panel px-4 flex items-center gap-5 text-[11px] text-muted shrink-0">
@@ -110,19 +112,19 @@ export const DriftPredictorScreen: React.FC = () => {
                 {b.flag ? 'Module B flag' : 'Within safety slope'}
               </span>
             </div>
-            <div className="font-semibold mb-1">Leakage (driver of the decision: {b.driver ? PARAM_LABEL[b.driver] : '–'})</div>
+            <div className="font-semibold mb-1">{PARAM_LABEL[param]} (driver of the decision: {b.driver ? PARAM_LABEL[b.driver] : '–'})</div>
             <div className="space-y-1 mb-3">
-              <Row k="Reading 0h / 24h" v={`${f(part.readings[0], 2)} / ${f(part.readings[24], 2)} µA`} />
-              <Row k="Forecast 168h" v={`${f(leak?.forecast168h, 2)} µA`} strong />
-              <Row k="Prediction interval" v={leak?.intervalLower != null ? `${f(leak.intervalLower, 2)} – ${f(leak.intervalUpper, 2)} µA` : 'not available'} />
-              <Row k="Predicted drift rate" v={`${f(leak?.predictedRate, 5)} µA/h`} strong={!!leak?.exceedsSafetySlope} />
-              <Row k="Lot median rate" v={`${f(leak?.lotMedianRate, 5)} µA/h`} />
-              <Row k="Lot spread" v={`${f(leak?.lotSpread, 5)} µA/h`} />
+              <Row k="Reading 0h / 24h" v={`${f(part.readings[0], 2)} / ${f(part.readings[24], 2)} ${unit}`} />
+              <Row k="Forecast 168h" v={`${f(leak?.forecast168h, 2)} ${unit}`} strong />
+              <Row k="Prediction interval" v={leak?.intervalLower != null ? `${f(leak.intervalLower, 2)} – ${f(leak.intervalUpper, 2)} ${unit}` : 'not available'} />
+              <Row k="Predicted drift rate" v={`${f(leak?.predictedRate, 5)} ${unit}/h`} strong={!!leak?.exceedsSafetySlope} />
+              <Row k="Lot median rate" v={`${f(leak?.lotMedianRate, 5)} ${unit}/h`} />
+              <Row k="Lot spread" v={`${f(leak?.lotSpread, 5)} ${unit}/h`} />
               <Row k="k (learned)" v={f(b.thresholdK, 2)} />
-              <Row k="Lot safety slope" v={`${f(leak?.safetySlope, 5)} µA/h`} />
+              <Row k="Lot safety slope" v={`${f(leak?.safetySlope, 5)} ${unit}/h`} />
               <div className="text-[10px] text-muted font-sans">safety slope = lot median + k × lot spread (from this lot's 0h/24h-based forecasts)</div>
-              <Row k="Measured 168h (after the fact)" v={part.readings[168] != null ? `${f(part.readings[168], 2)} µA` : '–'} />
-              {staticLimit != null && <Row k="Forecast vs datasheet limit" v={leak?.forecast168h != null && leak.forecast168h >= staticLimit ? `REACHES ${staticLimit} µA` : `below ${staticLimit} µA`} />}
+              <Row k="Measured 168h (after the fact)" v={part.readings[168] != null ? `${f(part.readings[168], 2)} ${unit}` : '–'} />
+              {staticLimit != null && <Row k="Forecast vs datasheet limit" v={leak?.forecast168h != null && leak.forecast168h >= staticLimit ? `REACHES ${staticLimit} ${unit}` : `below ${staticLimit} ${unit}`} />}
             </div>
             <div className="font-semibold mb-1">All parameters</div>
             <table className="w-full text-[11px]">

@@ -155,6 +155,13 @@ def screen_lot(session: Session, lot_id: uuid.UUID, model: Optional[ScreeningMod
     records += [insufficient_record(cid) for cid in bad_ids]
     write_predictions(session, records)
     verdicts = pd.Series([r["verdict"] for r in records]).value_counts().to_dict() if records else {}
+    # Honesty check on the model actually used: does its cost on its own inner-CV validation beat flagging every part?
+    v = model.thresholds_.get("validation") or {}
+    beats = None if not v else bool(v["weighted_cost"] < model.cost.fp_cost * (v["fp"] + v["tn"]))
+    warning = None if beats is not False else (
+        "The model for these parameters does not beat flagging every part on its validation data (cost "
+        f"{v['weighted_cost']:.0f} vs {model.cost.fp_cost * (v['fp'] + v['tn']):.0f}); its flags carry little information.")
     return {"n_screened": len(records), "n_insufficient_data": len(bad_ids), "verdicts": verdicts,
+            "model_beats_flag_all": beats, "warning": warning,
             "thresholds": {"threshold_a": _finite(model.thresholds_["threshold_a"]),
                            "threshold_b": _finite(model.thresholds_["threshold_b"])}}

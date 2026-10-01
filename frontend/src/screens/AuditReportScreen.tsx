@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/useStore';
+import { PARAM_UNIT, lotParam } from '../data/types';
 import { Printer, Download } from 'lucide-react';
 import { StatusMarker } from '../components/common/StatusMarker';
 import { LotConditions } from '../components/common/LotConditions';
 
 export const AuditReportScreen: React.FC = () => {
   const { parts, predictions, activeLot, auditEvents, inspector, config, api } = useStore();
+  const param = lotParam(activeLot);
   const [docHash, setDocHash] = useState<string>('computing…');
 
   const counts = useMemo(() => ({
@@ -18,17 +20,17 @@ export const AuditReportScreen: React.FC = () => {
   const flagged = parts.filter(p => p.isFlagged);
 
   const csvRows = useMemo(() => {
-    const header = ['part_id', 'leak_0h', 'leak_24h', 'leak_96h', 'leak_168h', 'forecast_168h', 'interval_lower', 'interval_upper',
+    const header = ['part_id', ...[0, 24, 96, 168].map(h => `${param}_${h}h`), `forecast_${param}_168h`, 'interval_lower', 'interval_upper',
       'module_a_score', 'threshold_a', 'module_b_z', 'threshold_b', 'model_verdict', 'status', 'status_source', 'inspector', 'reason'];
     const q = (v: unknown) => (v == null ? '' : typeof v === 'string' ? `"${v.replace(/"/g, '""')}"` : String(v));
     return [header.join(','), ...parts.map(p => {
       const pr = predictions[p.partId];
-      const l = pr?.moduleB?.perParam.leakage_current_ua;
+      const l = pr?.moduleB?.perParam[param];
       return [p.partId, p.readings[0], p.readings[24], p.readings[96], p.readings[168], l?.forecast168h, l?.intervalLower, l?.intervalUpper,
         pr?.moduleA?.score, pr?.moduleA?.threshold, pr?.moduleB?.score, pr?.moduleB?.thresholdK, pr?.verdict, p.status, p.statusSource,
         p.inspector, p.reason].map(q).join(',');
     })].join('\n');
-  }, [parts, predictions]);
+  }, [parts, predictions, param]);
 
   // Hash of the exact exported content (not a placeholder): changes whenever any row changes.
   useEffect(() => {
@@ -84,7 +86,7 @@ export const AuditReportScreen: React.FC = () => {
 
           <Section title={`2. Flagged parts (${flagged.length})`}>
             <table className="w-full text-left border-collapse border border-hairline text-[10px]">
-              <thead><tr className="bg-panel text-muted"><th className="p-1">Part</th><th className="p-1 text-right">24h µA</th><th className="p-1 text-right">Fcst 168h</th><th className="p-1 text-right">A score</th><th className="p-1 text-right">B z</th><th className="p-1">Reason</th><th className="p-1">Status</th></tr></thead>
+              <thead><tr className="bg-panel text-muted"><th className="p-1">Part</th><th className="p-1 text-right">24h {PARAM_UNIT[param]}</th><th className="p-1 text-right">Fcst 168h {PARAM_UNIT[param]}</th><th className="p-1 text-right">A score</th><th className="p-1 text-right">B z</th><th className="p-1">Reason</th><th className="p-1">Status</th></tr></thead>
               <tbody>
                 {flagged.slice(0, 40).map(p => {
                   const pr = predictions[p.partId];
@@ -92,7 +94,7 @@ export const AuditReportScreen: React.FC = () => {
                     <tr key={p.id} className="border-t border-hairline/40">
                       <td className="p-1 font-semibold">{p.partId}</td>
                       <td className="p-1 text-right">{p.readings[24]?.toFixed(2) ?? '–'}</td>
-                      <td className="p-1 text-right">{pr?.moduleB?.perParam.leakage_current_ua?.forecast168h?.toFixed(2) ?? '–'}</td>
+                      <td className="p-1 text-right">{pr?.moduleB?.perParam[param]?.forecast168h?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 text-right">{pr?.moduleA?.score?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 text-right">{pr?.moduleB?.score?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 truncate max-w-[150px] text-muted">{p.reason}</td>

@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/useStore';
+import { PARAM_UNIT, lotParam } from '../data/types';
 import { StatusMarker } from '../components/common/StatusMarker';
 import { Search } from 'lucide-react';
 
@@ -9,8 +10,9 @@ const f = (v: number | null | undefined, nd = 2) => (v == null ? '–' : v.toFix
 export const DecisionQueueScreen: React.FC = () => {
   const {
     parts, predictions, selectedPartId, selectPart, selectedPartIds, togglePartSelection, selectAllParts,
-    clearPartSelection, openDecisionDialog, auditEvents,
+    clearPartSelection, openDecisionDialog, auditEvents, activeLot,
   } = useStore();
+  const param = lotParam(activeLot);
   const [search, setSearch] = useState('');
   const [show, setShow] = useState<'flagged' | 'all' | 'undecided'>('flagged');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -56,7 +58,7 @@ export const DecisionQueueScreen: React.FC = () => {
           </div>
           <span className="col-span-1 text-right">A score</span>
           <span className="col-span-1 text-right">B z</span>
-          <span className="col-span-1 text-right">Fcst µA</span>
+          <span className="col-span-1 text-right">Fcst {PARAM_UNIT[param]}</span>
           <span className="col-span-1 pl-2">Model</span>
           <span className="col-span-3 pl-2">Reason</span>
           <span className="col-span-2 pl-2">Status</span>
@@ -78,7 +80,7 @@ export const DecisionQueueScreen: React.FC = () => {
                   </div>
                   <span className={`col-span-1 text-right tabular-nums ${pr?.moduleA?.flag ? 'text-reject font-semibold' : 'text-muted'}`}>{f(pr?.moduleA?.score)}</span>
                   <span className={`col-span-1 text-right tabular-nums ${pr?.moduleB?.flag ? 'text-reject font-semibold' : 'text-muted'}`}>{f(pr?.moduleB?.score)}</span>
-                  <span className="col-span-1 text-right tabular-nums text-muted">{f(pr?.moduleB?.perParam.leakage_current_ua?.forecast168h, 1)}</span>
+                  <span className="col-span-1 text-right tabular-nums text-muted">{f(pr?.moduleB?.perParam[param]?.forecast168h, 1)}</span>
                   <span className="col-span-1 pl-2 text-muted">{pr?.verdict ?? '–'}</span>
                   <span className="col-span-3 pl-2 truncate text-muted text-[11px] font-sans">{p.reason}</span>
                   <div className="col-span-2 pl-2"><StatusMarker status={p.status} /></div>

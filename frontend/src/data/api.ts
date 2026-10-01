@@ -21,7 +21,7 @@ export interface ParikshakApi {
   readonly description: string;
   getConfig(): Promise<SystemConfig>;
   getLots(): Promise<Lot[]>;
-  getParts(lotId: string): Promise<{ parts: Part[]; predictions: Record<string, Prediction> }>;
+  getParts(lotId: string, param?: Param): Promise<{ parts: Part[]; predictions: Record<string, Prediction> }>;
   getExplanation(partId: string): Promise<Explanation | null>;
   submitDecision(decision: Decision): Promise<void>;
   getAuditLog(lotId?: string): Promise<AuditEvent[]>;
@@ -79,7 +79,7 @@ type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-ex
 
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
-export function mapPart(dto: Json): { part: Part; prediction: Prediction | null } {
+export function mapPart(dto: Json, param: Param = 'leakage_current_ua'): { part: Part; prediction: Prediction | null } {
   const allReadings: Reading[] = (dto.readings as Json[])
     .map(r => ({
       intervalHours: r.interval_hours,
@@ -88,7 +88,7 @@ export function mapPart(dto: Json): { part: Part; prediction: Prediction | null 
     }))
     .sort((a, b) => a.intervalHours - b.intervalHours);
   const readings: Record<number, number | null> = { 0: null, 24: null, 96: null, 168: null };
-  for (const r of allReadings) readings[r.intervalHours] = r.values.leakage_current_ua;
+  for (const r of allReadings) readings[r.intervalHours] = r.values[param] ?? null;
 
   const p = dto.prediction as Json | null;
   const d = dto.latest_decision as Json | null;
@@ -169,7 +169,7 @@ export function mapPrediction(partId: string, p: Json): Prediction {
       mahalanobis: num(p.module_a_mahalanobis),
       isolation: num(ma?.diagnostics?.isolation_forest),
     },
-    moduleB: p.pred_leakage_168h === null || p.pred_leakage_168h === undefined ? null : {
+    moduleB: PARAMS.every(k => forecast[k] === null) ? null : {
       score: num(p.module_b_score),
       thresholdK: num(p.threshold_b),
       flag: !!p.module_b_flag,
@@ -293,12 +293,12 @@ export class HttpApi implements ParikshakApi {
     }));
   }
 
-  async getParts(lotId: string) {
+  async getParts(lotId: string, param: Param = 'leakage_current_ua') {
     const dtos = await this.req<Json[]>(`/lots/${lotId}/parts`);
     const parts: Part[] = [];
     const predictions: Record<string, Prediction> = {};
     for (const dto of dtos) {
-      const { part, prediction } = mapPart(dto);
+      const { part, prediction } = mapPart(dto, param);
       parts.push(part);
       if (prediction) predictions[part.partId] = prediction;
     }
@@ -377,7 +377,7 @@ export class HttpApi implements ParikshakApi {
         });
       return {
         lotId: r.lot_id, lotNumber: r.lot_number, validation: mapIngestSummary(r.validation),
-        screening: r.screening ? { nScreened: r.screening.n_screened, nInsufficientData: r.screening.n_insufficient_data, verdicts: r.screening.verdicts } : null,
+        screening: r.screening ? { nScreened: r.screening.n_screened, nInsufficientData: r.screening.n_insufficient_data, verdicts: r.screening.verdicts, warning: r.screening.warning ?? null } : null,
       };
     } catch (e) {
       if (e instanceof ApiError && e.status === 422 && e.detail && typeof e.detail === 'object') {

@@ -58,6 +58,8 @@ def _ingest_sync(req: IngestRequest, parsed=None) -> IngestResponse:
             "units": parsed.units})
     supplied = {**parsed.conditions, **{k: getattr(req, k) for k in ("temperature_c", "test_parameter", "unit",
                                                                    "static_limit") if getattr(req, k) is not None}}
+    if len(parsed.parameters_used) == 1 and not supplied.get("test_parameter"):
+        supplied["test_parameter"] = parsed.parameters_used[0]  # a single-parameter file monitors that parameter
     try:
         conditions, assumed = resolve_conditions({k: v for k, v in supplied.items() if k != "unit"})
     except ValueError as exc:

@@ -17,6 +17,23 @@ export const PARAM_LABEL: Record<Param, string> = {
   iddq_ma: 'IDDQ',
   propagation_delay_ns: 'Prop. delay',
 };
+/** The parameter a lot is screened and charted on: its test parameter if the file has it, else the first parameter
+ * present (parameters_used from ingest; seeded lots have all three). */
+export function lotParam(lot: { testParameter: string | null; sourceDetail: Record<string, unknown> | null } | null | undefined): Param {
+  const used = ((lot?.sourceDetail?.parameters_used as string[] | undefined) ?? [...PARAMS])
+    .filter((p): p is Param => (PARAMS as readonly string[]).includes(p));
+  const tp = lot?.testParameter as Param | null | undefined;
+  if (tp && used.includes(tp)) return tp;
+  return used[0] ?? 'leakage_current_ua';
+}
+
+/** Static limit for `param`: the lot's own limit when it refers to that parameter, else the datasheet limit. */
+export function lotLimit(lot: { testParameter: string | null; staticLimit: number | null } | null | undefined, param: Param,
+  datasheet: Record<string, number> | undefined): number | null {
+  if (lot?.staticLimit != null && lot.testParameter === param) return lot.staticLimit;
+  return datasheet?.[param] ?? null;
+}
+
 export const PARAM_UNIT: Record<Param, string> = {
   leakage_current_ua: 'µA',
   iddq_ma: 'mA',
@@ -55,7 +72,7 @@ export interface Lot {
 
 export interface Reading {
   intervalHours: number;
-  values: Record<Param, number>;
+  values: Record<Param, number>; // may be null at runtime for parameters absent from an ingested lot
   imputed: Param[];
 }
 
@@ -63,7 +80,7 @@ export interface Part {
   id: string; // component UUID (backend) or synthetic id (offline)
   partId: string; // serial number shown to the inspector
   lotId: string;
-  /** Leakage current (µA) per interval; null when that interval has no reading. */
+  /** The lot's parameter (lotParam) per interval, in its unit; null when that interval has no reading. */
   readings: Record<number, number | null>;
   allReadings: Reading[];
   insufficientData: boolean;
@@ -241,5 +258,5 @@ export interface IngestResult {
   lotId: string | null;
   lotNumber: string | null;
   validation: IngestSummary;
-  screening: { nScreened: number; nInsufficientData: number; verdicts: Record<string, number> } | null;
+  screening: { nScreened: number; nInsufficientData: number; verdicts: Record<string, number>; warning: string | null } | null;
 }

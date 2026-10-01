@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { Part, Prediction } from '../../data/types';
+import { PARAM_LABEL, PARAM_UNIT, Param, Part, Prediction } from '../../data/types';
 
 interface DriftTracePlotProps {
+  /** Parameter plotted (the lot's parameter); part.readings already hold its values. */
+  param: Param;
   parts: Part[];
   selectedPart: Part | null;
   prediction: Prediction | null;
@@ -18,7 +20,7 @@ const INTERVALS = [0, 24, 96, 168];
 
 /** Leakage trajectories for the lot; forecast, 90% interval and lot safety slope for the selected part (all from the backend). */
 export const DriftTracePlot: React.FC<DriftTracePlotProps> = ({
-  parts, selectedPart, prediction, staticLimit, yAxisMode, showPredicted, showInterval, showSafetySlope, onSelectPart,
+  param, parts, selectedPart, prediction, staticLimit, yAxisMode, showPredicted, showInterval, showSafetySlope, onSelectPart,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [dim, setDim] = useState({ width: 700, height: 420 });
@@ -30,7 +32,7 @@ export const DriftTracePlot: React.FC<DriftTracePlotProps> = ({
   }, []);
 
   const m = { top: 24, right: 30, bottom: 40, left: 55 };
-  const drift = prediction?.moduleB?.perParam.leakage_current_ua ?? null;
+  const drift = prediction?.moduleB?.perParam[param] ?? null;
 
   const { x, y, ticks } = useMemo(() => {
     let maxY = staticLimit != null ? staticLimit * 1.15 : 1;
@@ -64,11 +66,11 @@ export const DriftTracePlot: React.FC<DriftTracePlotProps> = ({
             <text x={x(t)} y={dim.height - m.bottom + 16} textAnchor="middle" className="text-[10px] font-mono fill-muted">{t}h{t === 24 ? ' (decision)' : ''}</text>
           </g>
         ))}
-        <text transform="rotate(-90)" x={-(dim.height / 2)} y={14} textAnchor="middle" className="text-xs font-sans fill-muted">Leakage current (µA)</text>
+        <text transform="rotate(-90)" x={-(dim.height / 2)} y={14} textAnchor="middle" className="text-xs font-sans fill-muted">{PARAM_LABEL[param]} ({PARAM_UNIT[param]})</text>
         {staticLimit != null && (
           <g>
             <line x1={m.left} x2={dim.width - m.right} y1={y(staticLimit)} y2={y(staticLimit)} stroke="#5F6B73" strokeWidth={1.5} strokeDasharray="4 3" />
-            <text x={m.left + 6} y={y(staticLimit) - 4} className="text-[10px] font-mono fill-muted">Datasheet limit {staticLimit} µA</text>
+            <text x={m.left + 6} y={y(staticLimit) - 4} className="text-[10px] font-mono fill-muted">Static limit {staticLimit} {PARAM_UNIT[param]}</text>
           </g>
         )}
         {parts.map(p => p.id === selectedPart?.id ? null : (
@@ -79,7 +81,7 @@ export const DriftTracePlot: React.FC<DriftTracePlotProps> = ({
           <g>
             <line x1={x(0)} y1={y(v0)} x2={x(168)} y2={y(v0 + drift.safetySlope * 168)} stroke="#1C2328" strokeDasharray="4 3" />
             <text x={x(168) - 4} y={y(v0 + drift.safetySlope * 168) + 14} textAnchor="end" className="text-[10px] font-mono fill-main">
-              lot safety slope {drift.safetySlope.toFixed(4)} µA/h
+              lot safety slope {drift.safetySlope.toFixed(4)} {PARAM_UNIT[param]}/h
             </text>
           </g>
         )}

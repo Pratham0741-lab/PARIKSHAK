@@ -8,7 +8,7 @@ import { createApi, initialMode, ParikshakApi, persistMode } from '../data/api';
 import { DEFAULT_OFFLINE_SETTINGS, OfflineDemoApi, OfflineDemoSettings } from '../data/offlineDemo';
 import {
   ApiMode, AuditEvent, BenchmarkMetrics, CostCurve, Explanation, IngestOptions, IngestResult, Lot, Part, PartStatus, Prediction,
-  SystemConfig,
+  SystemConfig, lotParam,
 } from '../data/types';
 
 export const MIN_COMMENT_LENGTH = 5; // same rule as the backend (ReviewActionRequest.inspector_notes)
@@ -119,7 +119,7 @@ export const useStore = create<ParikshakStore>((set, get) => {
       const lot = lots.find(l => l.id === lotId) ?? null;
       if (!lot) return;
       try {
-        const [{ parts, predictions }, auditEvents] = await Promise.all([api.getParts(lotId), api.getAuditLog(lotId)]);
+        const [{ parts, predictions }, auditEvents] = await Promise.all([api.getParts(lotId, lotParam(lot)), api.getAuditLog(lotId)]);
         const current = get().selectedPartId;
         const selected = parts.find(p => p.partId === current) ?? parts.find(p => p.isFlagged) ?? parts[0];
         set({

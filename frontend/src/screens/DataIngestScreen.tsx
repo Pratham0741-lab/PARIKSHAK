@@ -149,6 +149,7 @@ export const DataIngestScreen: React.FC = () => {
               <div className="text-accept">
                 ✓ {result.lotNumber}: {result.screening.nScreened} parts screened ({Object.entries(result.screening.verdicts).map(([k, n]) => `${n} ${k}`).join(', ')}).{' '}
                 <button className="underline" onClick={() => navigate('/lots')}>Open lot</button>
+                {result.screening.warning && <div className="text-review mt-1" role="status">⚠ {result.screening.warning}</div>}
               </div>
             )}
           </div>

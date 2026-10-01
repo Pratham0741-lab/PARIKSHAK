@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import * as d3 from 'd3';
 import { useStore } from '../store/useStore';
+import { PARAM_LABEL, PARAM_UNIT, lotLimit, lotParam } from '../data/types';
 import { StatusMarker } from '../components/common/StatusMarker';
 import { LotConditions } from '../components/common/LotConditions';
 import { calculateMedian, calculateMAD } from '../lib/analytics/robustZ';
@@ -15,12 +16,14 @@ const fmt = (v: number | null | undefined, nd = 2) => (v == null ? '–' : v.toF
 export const LotOverviewScreen: React.FC = () => {
   const navigate = useNavigate();
   const { parts, predictions, activeLot, selectedPartId, selectPart, config } = useStore();
+  const param = lotParam(activeLot);
+  const unit = PARAM_UNIT[param];
   const [searchTerm, setSearchTerm] = useState('');
   const [sortColumn, setSortColumn] = useState<SortKey>('partId');
   const [sortAsc, setSortAsc] = useState(true);
-  const staticLimit = config?.datasheetLimits.leakage_current_ua ?? null;
+  const staticLimit = lotLimit(activeLot, param, config?.datasheetLimits);
 
-  // Distribution of the 24h leakage reading (the latest reading available at decision time).
+  // Distribution of the 24h reading of the lot's parameter (the latest reading available at decision time).
   const stats = useMemo(() => {
     const vals = parts.map(p => p.readings[24]).filter((v): v is number => v != null);
     if (vals.length === 0) return null;
@@ -37,7 +40,7 @@ export const LotOverviewScreen: React.FC = () => {
     };
   }, [parts, staticLimit]);
 
-  const rate = (serial: string) => predictions[serial]?.moduleB?.perParam.leakage_current_ua?.predictedRate ?? null;
+  const rate = (serial: string) => predictions[serial]?.moduleB?.perParam[param]?.predictedRate ?? null;
 
   const rows = useMemo(() => {
     const q = searchTerm.toLowerCase();
@@ -93,8 +96,8 @@ export const LotOverviewScreen: React.FC = () => {
       <div className="h-[140px] border-b border-hairline px-4 py-2 flex items-center justify-between bg-workspace shrink-0">
         <div className="flex-1 h-full pr-8">
           <div className="text-[11px] font-mono text-muted mb-1 flex items-center justify-between">
-            <span className="font-semibold text-main">Leakage distribution at 24h (latest reading at decision time)</span>
-            {stats && <span>Median <strong className="text-main">{stats.med.toFixed(2)} µA</strong> (MAD {stats.mad.toFixed(2)})</span>}
+            <span className="font-semibold text-main">{PARAM_LABEL[param]} distribution at 24h (latest reading at decision time)</span>
+            {stats && <span>Median <strong className="text-main">{stats.med.toFixed(2)} {unit}</strong> (MAD {stats.mad.toFixed(2)})</span>}
           </div>
           <svg className="w-full h-[95px] overflow-visible">
             {stats && (() => {
@@ -113,7 +116,7 @@ export const LotOverviewScreen: React.FC = () => {
                   {staticLimit != null && (
                     <>
                       <line x1={x(staticLimit)} x2={x(staticLimit)} y1={0} y2={h} stroke="#D63A2F" strokeWidth={1.5} strokeDasharray="4 2" />
-                      <text x={x(staticLimit)} y={-2} textAnchor="middle" className="text-[9px] font-mono fill-reject font-bold">datasheet limit {staticLimit} µA</text>
+                      <text x={x(staticLimit)} y={-2} textAnchor="middle" className="text-[9px] font-mono fill-reject font-bold">static limit {staticLimit} {unit}</text>
                     </>
                   )}
                 </g>
@@ -142,11 +145,11 @@ export const LotOverviewScreen: React.FC = () => {
 
       <div className="h-[28px] bg-panel border-b border-hairline grid grid-cols-12 items-center px-4 text-[11px] font-mono text-muted shrink-0 select-none">
         {header('Part ID', 'partId', 'col-span-2', false)}
-        {header('0h µA', 'val0', 'col-span-1')}
-        {header('24h µA', 'val24', 'col-span-1')}
-        {header('96h µA', 'val96', 'col-span-1')}
-        {header('168h µA', 'val168', 'col-span-1')}
-        {header('Pred. µA/h', 'rate', 'col-span-1')}
+        {header(`0h ${unit}`, 'val0', 'col-span-1')}
+        {header(`24h ${unit}`, 'val24', 'col-span-1')}
+        {header(`96h ${unit}`, 'val96', 'col-span-1')}
+        {header(`168h ${unit}`, 'val168', 'col-span-1')}
+        {header(`Pred. ${unit}/h`, 'rate', 'col-span-1')}
         <div className="col-span-2 pl-4">{header('Status', 'status', '', false)}</div>
         <div className="col-span-3">Reason</div>
       </div>

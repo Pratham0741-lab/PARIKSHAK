@@ -26,9 +26,9 @@ router = APIRouter(prefix="/lots", tags=["Lots"])
 
 class PartReading(BaseModel):
     interval_hours: int
-    leakage_current_ua: float
-    iddq_ma: float
-    propagation_delay_ns: float
+    leakage_current_ua: Optional[float] = None  # null when the parameter is absent from the lot
+    iddq_ma: Optional[float] = None  # null when the parameter is absent from the lot
+    propagation_delay_ns: Optional[float] = None  # null when the parameter is absent from the lot
     imputed_fields: Optional[List[str]] = None
 
 
