@@ -5,12 +5,11 @@ zero-filled), and screens the lot through Modules A and B with the persisted pro
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import insert, select
 from starlette.concurrency import run_in_threadpool
@@ -19,6 +18,7 @@ from backend.app.core.database import SessionLocal
 from backend.app.models import BurnInReading, Component, Lot, LotStatus
 from backend.app.services.ingest import PARAMETERS, parse_csv
 from backend.app.services.screening_service import audit, load_model, screen_lot
+from data_engine.tabular import TO_CANONICAL
 from ml_engine.conditions import resolve_conditions
 from ml_engine.verdict_engine import ScreeningVerdictEngine
 
@@ -36,7 +36,9 @@ class IngestRequest(BaseModel):
     temperature_c: Optional[float] = Field(None, ge=-60, le=300)
     test_parameter: Optional[str] = Field(None, description="leakage | iddq | delay")
     unit: Optional[str] = Field(None, max_length=16)
-    static_limit: Optional[float] = Field(None, gt=0)
+    static_limit: Optional[float] = Field(None, gt=0, description="in the file's unit for the monitored parameter")
+    units: Optional[Dict[str, str]] = Field(None, description="unit overrides, e.g. {'leakage': 'nA'}")
+    units_confirmed: bool = Field(False, description="the user has confirmed the detected units")
 
 
 class IngestResponse(BaseModel):
@@ -46,16 +48,29 @@ class IngestResponse(BaseModel):
     screening: Optional[Dict[str, Any]] = None
 
 
-def _ingest_sync(req: IngestRequest) -> IngestResponse:
-    parsed = parse_csv(req.csv)
+def _ingest_sync(req: IngestRequest, parsed=None) -> IngestResponse:
+    parsed = parsed or parse_csv(req.csv, req.test_parameter, req.units)
     if not parsed.ok or not parsed.parts:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=parsed.summary())
+    if parsed.needs_unit_confirmation and not req.units_confirmed:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
+            "message": "confirm the detected units (converted or implausible) and resubmit with units_confirmed=true",
+            "units": parsed.units})
     supplied = {**parsed.conditions, **{k: getattr(req, k) for k in ("temperature_c", "test_parameter", "unit",
                                                                    "static_limit") if getattr(req, k) is not None}}
     try:
-        conditions, assumed = resolve_conditions(supplied)
+        conditions, assumed = resolve_conditions({k: v for k, v in supplied.items() if k != "unit"})
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    # Readings are stored in canonical units, so the lot's unit is canonical. A static limit given in the
+    # file's unit is converted by the same factor as the readings.
+    p = conditions["test_parameter"]
+    file_units = list(parsed.units.get(p, {}).get("detected", {}))
+    if len(file_units) == 1 and supplied.get("static_limit") is not None:
+        conditions["static_limit"] = float(supplied["static_limit"]) * TO_CANONICAL[p][file_units[0]]
+    if supplied.get("unit") and "unit" in assumed:
+        assumed.remove("unit")
+    source_units = {q: sorted(u["detected"]) for q, u in parsed.units.items()}
     model = load_model()  # fail before writing anything if there is no trained model
     limits = ScreeningVerdictEngine.datasheet_limits()
     lot_number = req.lot_number or f"INGEST-{datetime.now(UTC):%Y%m%d-%H%M%S}"
@@ -66,30 +81,31 @@ def _ingest_sync(req: IngestRequest) -> IngestResponse:
         lot = Lot(lot_number=lot_number, wafer_id=req.wafer_id, status=LotStatus.INGESTED, source="CSV_INGEST",
                   **conditions, conditions_assumed=assumed,
                   source_detail={"kind": "UPLOADED", "file": req.filename or "(pasted CSV)",
-                                 "sha256": hashlib.sha256(req.csv.encode()).hexdigest(),
-                                 "rows": parsed.rows_total})
+                                 "sha256": parsed.sha256, "rows": parsed.rows_total, "layout": parsed.layout,
+                                 "units_in_file": source_units, "units_confirmed": req.units_confirmed})
         session.add(lot)
         session.flush()
 
-        readings = []
+        readings, comps = [], []
         for pp in parsed.parts:
             observed_breach = any(
-                v is not None and p not in pp.imputed.get(h, []) and v > limits[p]
-                for h, vals in pp.values.items() for p, v in vals.items()
+                v is not None and q not in pp.imputed.get(h, []) and v > limits[q]
+                for h, vals in pp.values.items() for q, v in vals.items()
             )
-            comp = Component(lot_id=lot.id, serial_number=pp.part_id, ground_truth_label=None,
-                             ground_truth_flag=None, is_datasheet_breached=observed_breach,
-                             insufficient_data=pp.insufficient_data)
-            session.add(comp)
-            session.flush()
+            cid = uuid.uuid4()
+            comps.append({"id": cid, "lot_id": lot.id, "serial_number": pp.part_id, "ground_truth_label": None,
+                          "ground_truth_flag": None, "is_datasheet_breached": observed_breach,
+                          "insufficient_data": pp.insufficient_data})
             for h, vals in pp.values.items():
-                if any(vals[p] is None for p in PARAMETERS):
+                if any(vals[q] is None for q in PARAMETERS):
                     continue  # whole optional interval absent
-                readings.append({"id": uuid.uuid4(), "component_id": comp.id, "interval_hours": h,
-                                 **{p: vals[p] for p in PARAMETERS},
+                readings.append({"id": uuid.uuid4(), "component_id": cid, "interval_hours": h,
+                                 **{q: vals[q] for q in PARAMETERS},
                                  "imputed_fields": pp.imputed.get(h) or None})
-        if readings:
-            session.execute(insert(BurnInReading), readings)
+        for i in range(0, len(comps), 2000):  # bulk insert (10k+ part files)
+            session.execute(insert(Component), comps[i: i + 2000])
+        for i in range(0, len(readings), 5000):
+            session.execute(insert(BurnInReading), readings[i: i + 5000])
         summary = parsed.summary()
         summary["conditions"] = conditions
         summary["conditions_assumed"] = assumed
@@ -118,4 +134,35 @@ async def ingest_csv(req: IngestRequest) -> IngestResponse:
 
 @router.post("/validate", summary="Validate a CSV without storing anything")
 async def validate_csv(req: IngestRequest) -> Dict[str, Any]:
-    return parse_csv(req.csv).summary()
+    return (await run_in_threadpool(parse_csv, req.csv, req.test_parameter, req.units)).summary()
+
+
+@router.post("/stream", response_model=IngestResponse, status_code=status.HTTP_201_CREATED,
+             summary="Ingest a large CSV sent as the raw request body (text/csv), parsed as a stream")
+async def ingest_stream(
+    request: Request,
+    filename: str = Query("(streamed CSV)", max_length=255),
+    lot_number: Optional[str] = Query(None, max_length=64),
+    test_parameter: Optional[str] = Query(None),
+    units_confirmed: bool = Query(False),
+    validate_only: bool = Query(False),
+    actor: str = Query("QA Inspector", max_length=64),
+) -> Any:
+    import io
+    import tempfile
+
+    spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)  # spills to disk above 8 MB
+    async for chunk in request.stream():
+        spool.write(chunk)
+    spool.seek(0)
+    text = io.TextIOWrapper(spool, encoding="utf-8-sig", newline="")
+    parsed = await run_in_threadpool(parse_csv, text, test_parameter, None)
+    spool.close()
+    if validate_only:
+        return IngestResponse(lot_id=None, lot_number=None, validation=parsed.summary())
+    req = IngestRequest(csv="(streamed)", filename=filename, lot_number=lot_number, test_parameter=test_parameter,
+                        units_confirmed=units_confirmed, actor=actor)
+    try:
+        return await run_in_threadpool(_ingest_sync, req, parsed)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

@@ -79,6 +79,33 @@ if (judgeModel) {
   results.push({ screen: 'judge-flow', errorBanner: /failed|HTTP \d{3}/.test(text), loading: false, empty: [],
     stale: want.filter(v => !text.includes(v)), consoleErrors, failed });
 }
+// Ingest flow (validation only, nothing stored): examples/ingest_messy.csv has nA/ps units, aliased headers,
+// a blank cell, a non-numeric cell and a duplicate ID. Ingest must stay disabled until the units are confirmed,
+// and clicking an issue must show its file line.
+{
+  const MESSY = resolve(dirname(fileURLToPath(import.meta.url)), '../../examples/ingest_messy.csv');
+  const consoleErrors = [];
+  const failed = [];
+  page.on('console', m => m.type() === 'error' && consoleErrors.push(m.text()));
+  page.on('response', r => r.status() >= 400 && failed.push(`${r.status()} ${r.url()}`));
+  await page.goto(`${UI}/ingest`, { waitUntil: 'networkidle' });
+  await page.setInputFiles('input[type=file]', MESSY);
+  await page.waitForSelector('[data-testid="detected-units"]', { timeout: 30000 });
+  const button = page.getByRole('button', { name: 'Ingest and screen lot' });
+  const lockedBefore = await button.isDisabled();
+  await page.check('[data-testid="confirm-units"]');
+  const unlockedAfter = !(await button.isDisabled());
+  await page.getByText('non-numeric value').first().click();
+  const rowText = await page.locator('[data-testid="issue-row"]').innerText();
+  const text = await page.locator('body').innerText();
+  await page.screenshot({ path: `${OUT}/ingest-flow.png`, fullPage: true });
+  const stale = [];
+  if (!lockedBefore) stale.push('ingest not locked before unit confirmation');
+  if (!unlockedAfter) stale.push('ingest still locked after unit confirmation');
+  if (!rowText.includes('n.a.?')) stale.push('issue click did not show the offending line');
+  for (const want of ['na (file header)', 'ps (file header)', '1 non-numeric', 'Layout: wide']) if (!text.includes(want)) stale.push(want);
+  results.push({ screen: 'ingest-flow', errorBanner: false, loading: false, empty: [], stale, consoleErrors, failed });
+}
 await browser.close();
 
 let bad = false;

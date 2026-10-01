@@ -56,9 +56,18 @@ parameter, unit, static limit; defaulted values are flagged "assumed"). Two seed
 `physics` (default, `data_engine/physics_generator.py`: log-normal lots, Arrhenius temperature
 dependence, power-law drift, heteroscedastic noise, latent parts with clear/partial/no 24h signal,
 40 lots) and `legacy` (`data_engine/generator.py`, `--generator legacy`). The evaluation report runs a
-pinned protocol for each and lists them side by side. CSV ingest (`POST /api/v1/ingest`) stores unlabelled production lots; missing cells are
-imputed with the lot median and flagged (never zero-filled), and parts missing a 0h/24h value are
-sent to REVIEW without a model score.
+pinned protocol for each and lists them side by side. CSV ingest (`POST /api/v1/ingest`; large files go to `POST /api/v1/ingest/stream`
+as a raw text/csv body) stores unlabelled production lots. The reader (`data_engine/tabular.py`,
+shared with judge mode):
+- accepts wide, long and tidy layouts and any common delimiter;
+- matches headers case-insensitively and fuzzily (`Iddq_0h`, `I_0`, `T0`, `leakage (nA) @ 24 h`);
+- converts nA/uA/mA and ps/ns/us to canonical units. A converted or implausible unit must be confirmed in the UI;
+- lists every issue with its file line;
+- parses row by row, so it is tested on 10k+ parts.
+
+Missing cells are imputed with the lot median and flagged (never zero-filled), and parts missing a
+0h/24h value are sent to REVIEW without a model score. `examples/ingest_messy.csv`
+(`scripts/make_messy_ingest.py`) exercises all of these cases.
 
 **Only 0h and 24h readings are model inputs.** `ml_engine/features.py` drops later intervals before
 building features and raises if a 96h/168h-derived column reaches a feature matrix.
