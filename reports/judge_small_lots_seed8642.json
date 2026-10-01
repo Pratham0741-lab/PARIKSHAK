@@ -1,0 +1,115 @@
+{
+  "pretrained": "physics seed 42, 40 lots x 100 parts",
+  "cost": {
+    "fn_cost": 20.0,
+    "fp_cost": 1.0,
+    "recall_target": null
+  },
+  "max_flag_rate": 0.4,
+  "min_parts_full_train": 500,
+  "example_files": {
+    "chosen_path": "pretrained (no calibration)",
+    "banner": [
+      "trained on file: validation cost 888 does not beat flag-everything (873) - using the pretrained paths"
+    ],
+    "validation_on_training_file": [
+      {
+        "path": "trained on file",
+        "flag_rate": 0.90625,
+        "rejected_because": [
+          "validation cost 888 does not beat flag-everything (873)"
+        ]
+      },
+      {
+        "path": "pretrained + file-level outlier calibration",
+        "flag_rate": 0.49270833333333336,
+        "rejected_because": []
+      },
+      {
+        "path": "pretrained (no calibration)",
+        "flag_rate": 0.5552083333333333,
+        "rejected_because": []
+      }
+    ],
+    "test_lots": {
+      "trained on file": {
+        "n": 320,
+        "flagged": 293,
+        "defective": 39,
+        "fn": 3,
+        "fp": 257,
+        "cost": 317.0,
+        "flag_all_cost": 281.0
+      },
+      "pretrained + file-level outlier calibration": {
+        "n": 320,
+        "flagged": 159,
+        "defective": 39,
+        "fn": 9,
+        "fp": 129,
+        "cost": 309.0,
+        "flag_all_cost": 281.0
+      },
+      "pretrained (no calibration)": {
+        "n": 320,
+        "flagged": 194,
+        "defective": 39,
+        "fn": 8,
+        "fp": 163,
+        "cost": 323.0,
+        "flag_all_cost": 281.0
+      },
+      "chosen": {
+        "n": 320,
+        "flagged": 194,
+        "defective": 39,
+        "fn": 8,
+        "fp": 163,
+        "cost": 323.0,
+        "flag_all_cost": 281.0
+      }
+    }
+  },
+  "fresh_20_single_lots": {
+    "seed": 8642,
+    "chosen_path_counts": {
+      "pretrained (no calibration)": 11,
+      "pretrained + file-level outlier calibration": 9
+    },
+    "totals": {
+      "pretrained + file-level outlier calibration": {
+        "n": 2000.0,
+        "flagged": 953.0,
+        "defective": 213.0,
+        "fn": 61.0,
+        "fp": 801.0,
+        "cost": 2021.0,
+        "flag_all_cost": 1787.0,
+        "flag_rate": 0.4765,
+        "recall": 0.7136150234741784
+      },
+      "pretrained (no calibration)": {
+        "n": 2000.0,
+        "flagged": 1126.0,
+        "defective": 213.0,
+        "fn": 35.0,
+        "fp": 948.0,
+        "cost": 1648.0,
+        "flag_all_cost": 1787.0,
+        "flag_rate": 0.563,
+        "recall": 0.8356807511737089
+      },
+      "chosen": {
+        "n": 2000.0,
+        "flagged": 932.0,
+        "defective": 213.0,
+        "fn": 61.0,
+        "fp": 780.0,
+        "cost": 2000.0,
+        "flag_all_cost": 1787.0,
+        "flag_rate": 0.466,
+        "recall": 0.7136150234741784
+      }
+    }
+  }
+}

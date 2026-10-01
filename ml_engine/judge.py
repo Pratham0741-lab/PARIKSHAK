@@ -163,17 +163,18 @@ PATH_CALIBRATED = "pretrained + file-level outlier calibration"
 PATH_PRETRAINED = "pretrained (no calibration)"
 
 
-def _guard(metrics: Dict[str, Any], max_flag_rate: float) -> List[str]:
-    """Reasons a path is rejected: validation cost not below flag-everything, or flag rate above the ceiling."""
+def _guard(metrics: Dict[str, Any]) -> List[str]:
+    """Reason a path fails the guard: its validation cost does not beat flagging every part."""
     d = metrics["detection"]
-    reasons = []
     flag_all = metrics["trivial_policies"]["flag_all_parts"]["weighted_cost"]
     if d["weighted_cost"] >= flag_all:
-        reasons.append(f"validation cost {d['weighted_cost']:.0f} does not beat flag-everything ({flag_all:.0f})")
-    rate = (d["tp"] + d["fp"]) / d["n"] if d["n"] else 0.0
-    if rate > max_flag_rate:
-        reasons.append(f"flag rate {100 * rate:.1f}% exceeds the {100 * max_flag_rate:.0f}% ceiling")
-    return reasons
+        return [f"validation cost {d['weighted_cost']:.0f} does not beat flag-everything ({flag_all:.0f})"]
+    return []
+
+
+def _flag_rate(metrics: Dict[str, Any]) -> float:
+    d = metrics["detection"]
+    return (d["tp"] + d["fp"]) / d["n"] if d["n"] else 0.0
 
 
 def _calibrated(pretrained: ScreeningModel, work: pd.DataFrame, truth: pd.DataFrame, primary: str,
@@ -217,11 +218,12 @@ def train(table, filename: str, cost: Optional[CostConfig] = None, seed: int = 4
     """Returns (model, validation export, truth table used for the validation score).
 
     Paths:
-      1. trained on file - only if the file has >= MIN_LOTS lots and >= min_parts parts (lot-grouped OOF);
-      2. pretrained + file-level outlier calibration (needs `pretrained`, the production pipeline for these
-         parameters). This is the fallback whenever path 1 is not eligible or fails the guard (_guard), and is
-         kept (with the banner) even if it fails the guard too.
-    "pretrained (no calibration)" is validated and reported for reference only; it is never selected."""
+      1. trained on file - only if the file has >= MIN_LOTS lots and >= min_parts parts (lot-grouped OOF); used if
+         its validation cost beats flag-everything (_guard);
+      2. otherwise "pretrained + file-level outlier calibration" vs "pretrained (no calibration)" (both need
+         `pretrained`, the production pipeline for these parameters): the lower validation cost wins.
+    If no path beats flag-everything, the lowest-cost path is used and a banner says so. A validation flag rate
+    above max_flag_rate is a warning (flag_rate_warning), not a gate."""
     from evaluation.score import score_export
 
     if not table.has_168h:
@@ -262,23 +264,30 @@ def train(table, filename: str, cost: Optional[CostConfig] = None, seed: int = 4
     if small and pretrained is not None:
         banner.append(f"file too small to train Module B ({table.n_lots} lot(s), {n_parts} parts; needs >= {MIN_LOTS} "
                       f"lots and >= {min_parts} parts)")
-    chosen = None
+    scored = []
     for path, model, val, split in candidates:
         metrics = score_export(val, truth, primary, cost)
-        reasons = _guard(metrics, max_flag_rate)
-        d = metrics["detection"]
+        reasons = _guard(metrics)
         paths.append({"path": path, "evaluation_split": split, "validation_metrics": metrics, "rejected_because": reasons,
-                      "flag_rate": (d["tp"] + d["fp"]) / d["n"] if d["n"] else 0.0, "selectable": path != PATH_PRETRAINED})
-        if chosen is not None or path == PATH_PRETRAINED:
-            continue
-        if not reasons:
-            chosen = (path, model, val, split, metrics)
-        elif path == PATH_CALIBRATED or len(candidates) == 1:  # the fallback is kept even when it fails the guard
-            chosen = (path, model, val, split, metrics)
-            banner.append(f"{path}: " + "; ".join(reasons) + " - used anyway (fallback path)")
-        else:
-            banner.append(f"{path}: " + "; ".join(reasons) + f" - falling back to '{PATH_CALIBRATED}'")
-    path, model, val, split, metrics = chosen
+                      "flag_rate": _flag_rate(metrics), "validation_cost": metrics["detection"]["weighted_cost"]})
+        scored.append((path, model, val, split, metrics, reasons))
+    full = [c for c in scored if c[0] == PATH_FULL]
+    pre = [c for c in scored if c[0] != PATH_FULL]
+    if full and not full[0][5]:
+        chosen = full[0]
+    else:
+        if full:
+            banner.append(f"{PATH_FULL}: " + "; ".join(full[0][5]) + " - using the pretrained paths")
+        pool = pre or full
+        chosen = min(pool, key=lambda c: c[4]["detection"]["weighted_cost"])  # lower validation cost wins
+        if all(c[5] for c in scored):
+            banner.append(f"no path beats flag-everything on validation; using the lowest-cost path '{chosen[0]}' "
+                          f"(cost {chosen[4]['detection']['weighted_cost']:.0f} vs flag-everything "
+                          f"{chosen[4]['trivial_policies']['flag_all_parts']['weighted_cost']:.0f})")
+    path, model, val, split, metrics, _ = chosen
+    rate = _flag_rate(metrics)
+    flag_rate_warning = (f"validation flag rate {100 * rate:.1f}% is above the {100 * max_flag_rate:.0f}% ceiling"
+                         if rate > max_flag_rate else None)
 
     info = {
         "file": filename, "data_sha256": table.sha256, "n_parts": n_parts,
@@ -286,6 +295,7 @@ def train(table, filename: str, cost: Optional[CostConfig] = None, seed: int = 4
         "parameters": params, "primary_parameter": primary, "static_limit_override": static_limit,
         "label_source": label_source, "rule": {"id": RULE_ID, "text": RULE_TEXT},
         "path": path, "paths_tried": paths, "banner": banner, "max_flag_rate": max_flag_rate,
+        "flag_rate": rate, "flag_rate_warning": flag_rate_warning,
         "evaluation_split": split, "single_lot": single, "oof_metrics": metrics,
         "thresholds": {k: model.thresholds_.get(k) for k in ("threshold_a", "threshold_b", "source")},
         "cost_config": cost.as_dict(), "seed": seed, "trained_at": datetime.now(UTC).isoformat(),

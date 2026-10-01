@@ -30,7 +30,7 @@ from ml_engine import judge  # noqa: E402
 from ml_engine.features import PARAMETERS  # noqa: E402
 from ml_engine.screening import ScreeningModel  # noqa: E402
 
-FRESH_SEED = 2027
+FRESH_SEED = 2027  # S3 check; F2 used --seed 8642 (new lots, not used before)
 
 
 def wide(df, hours, labels=False):
@@ -62,6 +62,11 @@ def _sum(rows):
 
 
 def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", type=int, default=FRESH_SEED, help="seed of the 20 fresh lots")
+    seed = ap.parse_args().seed
     cost = CostConfig.from_settings()
     primary = PARAMETERS[0]
     print("fitting the pretrained production pipeline (physics, seed 42, 40 x 100)...", flush=True)
@@ -91,7 +96,7 @@ def main() -> int:
     }
 
     # ---- 20 fresh single-lot files
-    fresh = PhysicsBurnInGenerator(num_lots=20, components_per_lot=100, random_seed=FRESH_SEED).generate_dataset()
+    fresh = PhysicsBurnInGenerator(num_lots=20, components_per_lot=100, random_seed=seed).generate_dataset()
     lots = sorted(fresh["lot_id"].unique())
     rows = {judge.PATH_CALIBRATED: [], judge.PATH_PRETRAINED: [], "chosen": []}
     chosen_paths = []
@@ -110,10 +115,10 @@ def main() -> int:
         rows[judge.PATH_PRETRAINED].append(_score(pretrained, test, truth, cost, primary))
         rows["chosen"].append(_score(jm.model, test, truth, cost, primary))
         print(f"lot {i:2d}: chosen {jm.info['path']}", flush=True)
-    out["fresh_20_single_lots"] = {"seed": FRESH_SEED, "chosen_path_counts": pd.Series(chosen_paths).value_counts().to_dict(),
+    out["fresh_20_single_lots"] = {"seed": seed, "chosen_path_counts": pd.Series(chosen_paths).value_counts().to_dict(),
                                    "totals": {k: _sum(v) for k, v in rows.items()}}
 
-    path = ROOT / "reports" / "judge_small_lots.json"
+    path = ROOT / "reports" / ("judge_small_lots.json" if seed == FRESH_SEED else f"judge_small_lots_seed{seed}.json")
     path.write_text(json.dumps(out, indent=2, default=lambda o: o.item() if isinstance(o, np.generic) else str(o)) + "\n")
     print(json.dumps({"example_files": out["example_files"]["test_lots"], "chosen": out["example_files"]["chosen_path"],
                       "fresh": out["fresh_20_single_lots"]}, indent=1, default=str))

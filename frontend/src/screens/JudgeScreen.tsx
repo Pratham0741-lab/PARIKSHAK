@@ -128,7 +128,13 @@ export const JudgeScreen: React.FC = () => {
             <div className="text-main" data-testid="trained-on">Trained on <strong>{model.file}</strong>, {model.n_parts} parts, {model.n_lots} lots
               <span className="text-muted"> (sha256 {model.data_sha256.slice(0, 12)}…, parameters {model.parameters.join(', ')})</span></div>
             <div>Labels used for thresholds: <strong>{model.label_source}</strong></div>
-            <div className="text-main" data-testid="judge-path">Path: <strong>{model.path}</strong></div>
+            <div className="text-main flex items-center gap-2" data-testid="judge-path">Path: <strong>{model.path}</strong>
+              {model.flag_rate_warning && (
+                <span className="px-1.5 border border-review text-review text-[10px]" data-testid="flag-rate-chip" title={model.flag_rate_warning}>
+                  ⚠ flag rate {(100 * model.flag_rate).toFixed(1)}% &gt; {(100 * model.max_flag_rate).toFixed(0)}%
+                </span>
+              )}
+            </div>
             {model.banner?.length > 0 && (
               <div className="border border-review bg-review-bg text-review p-2" role="status" data-testid="judge-banner">
                 {model.banner.map(b => <div key={b}>{b}</div>)}

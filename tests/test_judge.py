@@ -162,16 +162,20 @@ def test_small_file_uses_pretrained_with_file_calibration_and_guard_banner(data)
                                                                            random_seed=99).generate_dataset())
     one = train_df[train_df["lot_id"] == sorted(train_df["lot_id"].unique())[0]]
     jm, _, _ = judge.train(read_table(wide_csv(one)), "one.csv", CostConfig(), pretrained=pretrained, max_flag_rate=0.0)
-    assert jm.info["path"] == judge.PATH_CALIBRATED
-    assert jm.model.module_b is pretrained.module_b  # Module B is the pretrained one
+    tried = {p["path"]: p for p in jm.info["paths_tried"]}
+    assert set(tried) == {judge.PATH_CALIBRATED, judge.PATH_PRETRAINED}
+    # the lower validation cost wins; the flag-rate ceiling is a warning, not a gate
+    assert jm.info["path"] == min(tried, key=lambda k: tried[k]["validation_cost"])
+    assert jm.model.module_b is pretrained.module_b  # Module B is the pretrained one either way
     assert jm.model.thresholds_["threshold_b"] == pretrained.thresholds_["threshold_b"]
-    assert any("too small" in b for b in jm.info["banner"]) and any("ceiling" in b for b in jm.info["banner"])
-    assert {p["path"] for p in jm.info["paths_tried"]} == {judge.PATH_CALIBRATED, judge.PATH_PRETRAINED}
+    assert any("too small" in b for b in jm.info["banner"])
+    assert jm.info["flag_rate_warning"] and "ceiling" in jm.info["flag_rate_warning"]
+    assert not any("ceiling" in b for b in jm.info["banner"])
 
 
-def test_guard_rejects_costly_or_high_flag_rate_paths():
+def test_guard_rejects_only_paths_that_do_not_beat_flag_everything():
     m = {"detection": {"tp": 5, "fp": 50, "fn": 0, "tn": 45, "n": 100, "weighted_cost": 50.0},
          "trivial_policies": {"flag_all_parts": {"weighted_cost": 95.0}}}
-    assert judge._guard(m, 0.40) == ["flag rate 55.0% exceeds the 40% ceiling"]
+    assert judge._guard(m) == [] and judge._flag_rate(m) == 0.55  # high flag rate alone does not fail the guard
     m["detection"]["weighted_cost"] = 95.0
-    assert len(judge._guard(m, 0.60)) == 1 and "flag-everything" in judge._guard(m, 0.60)[0]
+    assert len(judge._guard(m)) == 1 and "flag-everything" in judge._guard(m)[0]
