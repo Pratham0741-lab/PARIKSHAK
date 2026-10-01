@@ -107,7 +107,7 @@ export const PartDetailScreen: React.FC = () => {
         </Card>
 
         <Card title="Why this part was flagged" subtitle={pred ? `${reasonFromVerdict(pred.verdictReason)} → ${pred.verdict}` : 'No model prediction'} testId="why-flagged">
-          {!exp ? <LoadingState what="explanation" /> : (
+          {exp === undefined ? <LoadingState what="explanation" /> : exp === null ? <EmptyState title="No explanation available" reason="The explainer runs on the backend (offline demo has none), or this part has no model score." /> : (
             <div className="space-y-3">
               <div className="border-b border-hairline pb-3">
                 <div className="flex justify-between text-sm font-semibold"><span>Lot-relative outlier (Module A)</span>
@@ -140,7 +140,7 @@ export const PartDetailScreen: React.FC = () => {
       <section className="bg-navy text-white rounded-card px-6 py-5 flex items-start justify-between gap-6" data-testid="evidence">
         <div className="min-w-0">
           <h2 className="text-card font-semibold">Inspector evidence</h2>
-          <p className="text-md text-[#DCE4F0] mt-1 whitespace-pre-line">{exp?.summary ?? 'Loading the generated justification…'}</p>
+          <p className="text-md text-[#DCE4F0] mt-1 whitespace-pre-line">{exp === undefined ? 'Loading the generated justification…' : exp?.summary ?? 'No generated justification (no backend explanation for this part).'}</p>
         </div>
         <button onClick={() => openDecisionDialog(part.status, [part.partId])} data-testid="open-decision"
           className="shrink-0 rounded-full bg-review-bg text-review font-semibold px-5 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan">Open review decision</button>

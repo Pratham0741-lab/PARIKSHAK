@@ -12,7 +12,7 @@ import { lotRates } from '../lib/lotStats';
 const TOP_N = 6;
 
 export const OverviewScreen: React.FC = () => {
-  const { activeLot, lots, parts, predictions, config, explanations, loadExplanation } = useStore();
+  const { activeLot, lots, parts, predictions, config, explanations, loadExplanation, mode } = useStore();
   const navigate = useNavigate();
   const defaultParam = lotParam(activeLot);
   const used = ((activeLot?.sourceDetail?.parameters_used as string[] | undefined) ?? [...PARAMS]) as Param[];
@@ -68,7 +68,7 @@ export const OverviewScreen: React.FC = () => {
 
   return (
     <div className="space-y-5 max-w-[1500px]" data-testid="overview">
-      <p className="text-sm text-muted">Lot {activeLot.lotNumber} · {int(counts.n)} parts · verdicts from 0h/24h readings (model; inspector decisions shown in the Review Queue)</p>
+      <p className="text-sm text-muted">Lot {activeLot.lotNumber} · {int(counts.n)} parts · verdicts from 0h/24h readings ({mode === 'offline' ? 'offline demo rules, not the ML model' : 'model'}; inspector decisions shown in the Review Queue)</p>
       <div className="grid grid-cols-4 gap-4">
         <StatTile label="Parts screened" value={int(counts.n)} tone="info"
           sub={delta != null ? `flag rate ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pp vs ${prev?.lotNumber}` : 'no previous lot to compare'} />
