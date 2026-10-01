@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ml_engine.conditions import T_REF_C, arrhenius_factor
+
 
 @dataclass
 class LotProfile:
@@ -32,6 +34,7 @@ class LotProfile:
     leakage_median: float = 0.0
     iddq_median: float = 0.0
     delay_median: float = 0.0
+    temperature_c: float = 125.0
 
 
 class BurnInSyntheticGenerator:
@@ -76,6 +79,7 @@ class BurnInSyntheticGenerator:
         sensor_noise_ratio: float = 0.05,
         benign_lot_fraction: float = 0.2,
         defect_rates: Optional[Dict[str, float]] = None,
+        lot_temperatures_c: Optional[List[float]] = None,
     ) -> None:
         """
         Initialize the synthetic burn-in generator.
@@ -90,6 +94,8 @@ class BurnInSyntheticGenerator:
             sensor_noise_ratio: Gaussian sensor measurement relative error (sigma = ratio * value).
             benign_lot_fraction: Proportion of lots generated as BENIGN_HIGH_LOT.
             defect_rates: Proportions for each anomaly class per normal lot.
+            lot_temperatures_c: Burn-in temperature per lot (cycled); default 125 degC for every lot.
+                Baseline leakage scales with the Arrhenius factor relative to 125 degC (factor 1.0 there).
         """
         self.num_lots = num_lots
         self.components_per_lot = components_per_lot
@@ -98,6 +104,7 @@ class BurnInSyntheticGenerator:
         self.iddq_max_ma = iddq_max_ma
         self.delay_max_ns = delay_max_ns
         self.sensor_noise_ratio = sensor_noise_ratio
+        self.lot_temperatures_c = list(lot_temperatures_c) if lot_temperatures_c else [T_REF_C]
         self.benign_lot_fraction = benign_lot_fraction
 
         self.rng = np.random.default_rng(seed=self.random_seed)
@@ -115,6 +122,19 @@ class BurnInSyntheticGenerator:
             "STEEP_DRIFT": 0.03,          # 3%
             "LATE_DRIFT": 0.03,           # 3%
             "SUBTLE_MULTIVARIATE": 0.03,  # 3%
+        }
+
+    GENERATOR_NAME = "legacy"
+
+    def lot_conditions(self, profile: LotProfile) -> Dict[str, Any]:
+        """Test conditions and provenance stored with each generated lot (all supplied, none assumed)."""
+        return {
+            "temperature_c": profile.temperature_c,
+            "test_parameter": "leakage_current_ua",
+            "unit": "uA",
+            "static_limit": self.leakage_max_ua,
+            "conditions_assumed": [],
+            "source_detail": {"kind": "SYNTHETIC", "generator": self.GENERATOR_NAME, "seed": self.random_seed},
         }
 
     def _make_id(self, key: str) -> uuid.UUID:
@@ -159,6 +179,9 @@ class BurnInSyntheticGenerator:
                 base_iddq = float(self.rng.normal(self.NOMINAL_IDDQ_MEAN_MA, self.NOMINAL_IDDQ_STD_MA))
                 base_delay = float(self.rng.normal(self.NOMINAL_DELAY_MEAN_NS, self.NOMINAL_DELAY_STD_NS))
 
+            temperature_c = float(self.lot_temperatures_c[lot_idx % len(self.lot_temperatures_c)])
+            base_leakage *= arrhenius_factor(temperature_c)  # exactly 1.0 at the 125 degC reference
+
             profiles.append(
                 LotProfile(
                     lot_id=lot_id,
@@ -168,6 +191,7 @@ class BurnInSyntheticGenerator:
                     base_leakage_ua=max(1.0, base_leakage),
                     base_iddq_ma=max(0.1, base_iddq),
                     base_delay_ns=max(0.5, base_delay),
+                    temperature_c=temperature_c,
                 )
             )
 
@@ -378,6 +402,7 @@ class BurnInSyntheticGenerator:
                             "lot_number": profile.lot_number,
                             "wafer_id": profile.wafer_id,
                             "is_benign_high_lot": profile.is_benign_high,
+                            "temperature_c": profile.temperature_c,
                             "component_id": str(comp_id),
                             "serial_number": serial_num,
                             "interval_hours": interval_hours,
@@ -413,6 +438,7 @@ class BurnInSyntheticGenerator:
                     "lot_number": profile.lot_number,
                     "wafer_id": profile.wafer_id,
                     "status": "INGESTED",
+                    **self.lot_conditions(profile),
                     "created_at": base_timestamp,
                 }
             )

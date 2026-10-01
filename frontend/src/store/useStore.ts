@@ -7,7 +7,7 @@ import { create } from 'zustand';
 import { createApi, initialMode, ParikshakApi, persistMode } from '../data/api';
 import { DEFAULT_OFFLINE_SETTINGS, OfflineDemoApi, OfflineDemoSettings } from '../data/offlineDemo';
 import {
-  ApiMode, AuditEvent, BenchmarkMetrics, CostCurve, Explanation, IngestResult, Lot, Part, PartStatus, Prediction,
+  ApiMode, AuditEvent, BenchmarkMetrics, CostCurve, Explanation, IngestOptions, IngestResult, Lot, Part, PartStatus, Prediction,
   SystemConfig,
 } from '../data/types';
 
@@ -49,6 +49,9 @@ interface ParikshakStore {
   decisionDialog: DecisionDialogState;
   isShortcutModalOpen: boolean;
   isDevModalOpen: boolean;
+  /** Data-source tag for the Judge screen (its files are not lots). */
+  judgeSource: string | null;
+  setJudgeSource: (tag: string | null) => void;
 
   fetchInitialData: () => Promise<void>;
   setActiveLot: (lotId: string) => Promise<void>;
@@ -65,7 +68,7 @@ interface ParikshakStore {
   setMode: (mode: ApiMode) => Promise<void>;
   updateOfflineSettings: (s: Partial<OfflineDemoSettings>) => Promise<void>;
   setInspector: (name: string) => void;
-  ingestCsv: (csv: string, lotNumber?: string) => Promise<IngestResult>;
+  ingestCsv: (csv: string, lotNumber?: string, opts?: IngestOptions) => Promise<IngestResult>;
   setShortcutModalOpen: (open: boolean) => void;
   setDevModalOpen: (open: boolean) => void;
 }
@@ -216,8 +219,8 @@ export const useStore = create<ParikshakStore>((set, get) => {
       set({ inspector: name });
     },
 
-    ingestCsv: async (csv: string, lotNumber?: string) => {
-      const res = await get().api.ingestCsv(csv, lotNumber, get().inspector || 'QA Inspector');
+    ingestCsv: async (csv: string, lotNumber?: string, opts?: IngestOptions) => {
+      const res = await get().api.ingestCsv(csv, lotNumber, get().inspector || 'QA Inspector', opts);
       if (res.lotId) {
         const lots = await get().api.getLots();
         set({ lots });
@@ -226,6 +229,8 @@ export const useStore = create<ParikshakStore>((set, get) => {
       return res;
     },
 
+    judgeSource: null,
+    setJudgeSource: (tag) => set({ judgeSource: tag }),
     setShortcutModalOpen: (open) => set({ isShortcutModalOpen: open }),
     setDevModalOpen: (open) => set({ isDevModalOpen: open }),
   };

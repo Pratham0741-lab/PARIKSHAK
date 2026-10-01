@@ -44,6 +44,13 @@ export interface Lot {
   passCount: number;
   reviewCount: number;
   rejectCount: number;
+  /** Burn-in test conditions (data). Fields listed in conditionsAssumed were defaulted, not supplied. */
+  temperatureC: number | null;
+  testParameter: string | null;
+  unit: string | null;
+  staticLimit: number | null;
+  conditionsAssumed: string[];
+  sourceDetail: Record<string, unknown> | null;
 }
 
 export interface Reading {
@@ -218,6 +225,16 @@ export interface IngestSummary {
   insufficientDataParts: number;
   missingColumns: string[];
   issues: IngestIssue[];
+  layout?: string | null;
+  columnMap: { header: string; role: string; param?: string; hour?: number; unit?: string; how?: string; note?: string }[];
+  units: Record<string, { canonical: string; detected: Record<string, string>; converted: boolean; implausible: boolean; median_0h_canonical: number | null }>;
+  needsUnitConfirmation: boolean;
+  nLotsInFile: number;
+}
+
+export interface IngestOptions {
+  filename?: string;
+  unitsConfirmed?: boolean;
 }
 
 export interface IngestResult {

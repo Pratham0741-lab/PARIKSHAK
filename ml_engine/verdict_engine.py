@@ -56,8 +56,9 @@ class ScreeningVerdictEngine:
         module_b_score: float,
         threshold_b: float,
         module_b_label: str = "drift z (predicted rate vs lot safety slope)",
+        limits: Dict[str, float] | None = None,
     ) -> Tuple[str, str]:
-        limits = self.datasheet_limits()
+        limits = {**self.datasheet_limits(), **(limits or {})}
         a_flag = module_a_score >= threshold_a
         b_flag = module_b_score >= threshold_b
         ta = "off" if math.isinf(threshold_a) else f"{threshold_a:.3f}"
@@ -67,7 +68,8 @@ class ScreeningVerdictEngine:
 
         if observed_breach:
             return "REJECT", "RULE_STATIC_LIMIT: an observed reading exceeds a datasheet limit."
-        breached = self.predicted_breaches(predictions_168h)
+        breached = [p for p, lim in limits.items() if predictions_168h.get(p) is not None
+                    and not math.isnan(predictions_168h[p]) and predictions_168h[p] >= lim]
         if breached:
             parts = [f"{p} forecast {predictions_168h[p]:.3f} {UNITS[p]} >= limit {limits[p]:g} {UNITS[p]}" for p in breached]
             return "REJECT", "RULE_PRED_LIMIT: " + "; ".join(parts) + "."
@@ -79,7 +81,8 @@ class ScreeningVerdictEngine:
             return "REVIEW", f"RULE_MODULE_B: {b_txt}; {a_txt}."
         return "PASS", f"RULE_NOMINAL: {a_txt}; {b_txt}; no datasheet limit observed or forecast."
 
-    def evaluate_dataframe(self, df: pd.DataFrame, threshold_a: float, threshold_b: float) -> pd.DataFrame:
+    def evaluate_dataframe(self, df: pd.DataFrame, threshold_a: float, threshold_b: float,
+                           limits: Dict[str, float] | None = None) -> pd.DataFrame:
         verdicts, reasons = [], []
         for _, row in df.iterrows():
             v, r = self.evaluate_component(
@@ -89,6 +92,7 @@ class ScreeningVerdictEngine:
                 threshold_a=threshold_a,
                 module_b_score=float(row["module_b_score"]),
                 threshold_b=threshold_b,
+                limits=limits,
             )
             verdicts.append(v)
             reasons.append(r)

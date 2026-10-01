@@ -29,7 +29,8 @@ from ml_engine.module_b_drift import DriftPredictor
 from ml_engine.safety_slope import COLD_START_K, drift_rates, lot_statistics, safety_slopes, spread_floors
 from ml_engine.verdict_engine import PRED_COLUMN, ScreeningVerdictEngine
 
-READING_COLUMNS = ["component_id", "lot_id", "interval_hours", *PARAMETERS]
+# temperature_c is lot metadata (a test condition), carried on each row; it is not a label.
+READING_COLUMNS = ["component_id", "lot_id", "interval_hours", *PARAMETERS, "temperature_c"]
 LABEL_COLUMNS = ("ground_truth_label", "ground_truth_flag", "is_datasheet_breached", "is_benign_high_lot")
 DATASHEET_LIMITS = ScreeningVerdictEngine.datasheet_limits()
 # Conformalised quantile regression: target coverage of the Module B prediction interval.
@@ -37,7 +38,8 @@ INTERVAL_COVERAGE = 0.90
 SHORT = {"leakage_current_ua": "leakage", "iddq_ma": "iddq", "propagation_delay_ns": "delay"}
 
 # Defect types Module B's safety-slope rule is responsible for (used only to calibrate k on training lots).
-MODULE_B_TARGET_CLASSES = ("STEEP_DRIFT", "LATE_DRIFT")
+# "DRIFT" marks drift-type defects when labels come from a user file or the labels-free rule (judge mode).
+MODULE_B_TARGET_CLASSES = ("STEEP_DRIFT", "LATE_DRIFT", "DRIFT")
 
 # Cold-start defaults, used only if a model is asked to predict before thresholds are learned.
 COLD_START_THRESHOLDS = {"threshold_a": LotOutlierDetector.DEFAULT_THRESHOLD, "threshold_b": COLD_START_K}
@@ -49,10 +51,12 @@ def early_readings_only(df: pd.DataFrame, intervals: Iterable[int] = EARLY_INTER
     return out[[c for c in READING_COLUMNS if c in out.columns]].copy()
 
 
-def observed_static_breach(early: pd.DataFrame) -> pd.Series:
-    """Static datasheet-limit check on the readings actually observed so far (0h/24h)."""
+def observed_static_breach(early: pd.DataFrame, limits: Optional[Dict[str, float]] = None) -> pd.Series:
+    """Static limit check on the readings actually observed so far (0h/24h); absent parameters are skipped."""
     breach = pd.Series(False, index=early["component_id"].unique())
-    for p, limit in DATASHEET_LIMITS.items():
+    for p, limit in (limits or DATASHEET_LIMITS).items():
+        if p not in early.columns:
+            continue
         breach.loc[early.loc[early[p] > limit, "component_id"].unique()] = True
     return breach
 
@@ -78,21 +82,23 @@ class ScreeningModel:
     # ------------------------------------------------------------------ scoring
     @staticmethod
     def _v0(early: pd.DataFrame) -> pd.DataFrame:
-        return early[early["interval_hours"] == 0][["component_id", *PARAMETERS]].drop_duplicates("component_id")
+        cols = [p for p in PARAMETERS if p in early.columns]
+        return early[early["interval_hours"] == 0][["component_id", *cols]].drop_duplicates("component_id")
 
     def _scores(self, early: pd.DataFrame, module_a: LotOutlierDetector, module_b: DriftPredictor,
-                floors: Dict[str, float]) -> pd.DataFrame:
+                floors: Dict[str, float], limits: Optional[Dict[str, float]] = None) -> pd.DataFrame:
         res_a = module_a.predict(early)
         res_b = module_b.predict(early)
         merged = res_a.merge(res_b, on="component_id", how="inner")
         # Module B decision score: lot-relative robust z of the predicted drift rate (max over parameters).
         stats = lot_statistics(drift_rates(merged, self._v0(early)), floors)
         merged = merged.merge(stats.drop(columns=["lot_id"]), on="component_id", how="left")
-        breach = observed_static_breach(early)
+        limits = {**DATASHEET_LIMITS, **(limits or {})}
+        breach = observed_static_breach(early, limits)
         merged["observed_static_breach"] = merged["component_id"].map(breach).fillna(False).astype(bool)
         pred_breach = np.zeros(len(merged), dtype=bool)
-        for p, lim in DATASHEET_LIMITS.items():
-            pred_breach |= merged[PRED_COLUMN[p]].to_numpy() >= lim
+        for p, lim in limits.items():
+            pred_breach |= np.nan_to_num(merged[PRED_COLUMN[p]].to_numpy(float), nan=-np.inf) >= lim
         merged["predicted_limit_breach"] = pred_breach
         return merged
 
@@ -163,7 +169,7 @@ class ScreeningModel:
             y = val[f"true_{p}_168h"].to_numpy(float)
             lo = val[f"q_lo_{SHORT[p]}_168h"].to_numpy(float)
             hi = val[f"q_hi_{SHORT[p]}_168h"].to_numpy(float)
-            ok = ~np.isnan(y)
+            ok = ~np.isnan(y) & ~np.isnan(lo) & ~np.isnan(hi)
             e = np.maximum(lo[ok] - y[ok], y[ok] - hi[ok])  # conformity score
             n = len(e)
             level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n) if n else 1.0
@@ -192,9 +198,10 @@ class ScreeningModel:
         return m
 
     # ------------------------------------------------------------------ predict
-    def predict(self, df: pd.DataFrame) -> pd.DataFrame:
+    def predict(self, df: pd.DataFrame, limits: Optional[Dict[str, float]] = None) -> pd.DataFrame:
+        """`limits` optionally overrides datasheet static limits per parameter (e.g. a lot's own limit)."""
         early = early_readings_only(df)
-        scored = self._scores(early, self.module_a, self.module_b, self.spread_floors_)
+        scored = self._scores(early, self.module_a, self.module_b, self.spread_floors_, limits)
         ta, tb = self.thresholds_["threshold_a"], self.thresholds_["threshold_b"]
         scored = scored.merge(safety_slopes(scored, tb), on="component_id", how="left")
         for p in PARAMETERS:
@@ -205,7 +212,7 @@ class ScreeningModel:
         scored["module_b_flag"] = (scored["module_b_score"] >= tb) | scored["predicted_limit_breach"]
         scored["threshold_a"] = ta
         scored["threshold_b"] = tb
-        out = self.verdict_engine.evaluate_dataframe(scored, ta, tb)
+        out = self.verdict_engine.evaluate_dataframe(scored, ta, tb, limits=limits)
         out["screen_flag"] = out["verdict"].isin(["REVIEW", "REJECT"])
         feats = self.module_b.features(early)
         contrib = dict(zip(feats.index.astype(str), self.module_b.contributions(feats), strict=False))

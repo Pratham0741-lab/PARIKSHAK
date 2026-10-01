@@ -16,6 +16,7 @@ export const TopRail: React.FC = () => {
     { to: '/decisions', label: 'Decisions' },
     { to: '/model', label: 'Model' },
     { to: '/reports', label: 'Reports' },
+    { to: '/judge', label: 'Judge' },
   ];
 
   return (

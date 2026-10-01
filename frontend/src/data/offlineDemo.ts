@@ -153,6 +153,8 @@ export class OfflineDemoApi {
       id: lotId, lotNumber: `DEMO-SEED-${settings.seed}`, waferId: null, status: 'OFFLINE_DEMO', source: 'OFFLINE_DEMO',
       createdAt: new Date().toISOString(), totalParts: this.parts.length,
       passCount: count('Accept'), reviewCount: count('Review'), rejectCount: count('Reject'),
+      temperatureC: null, testParameter: 'leakage_current_ua', unit: 'uA', staticLimit: settings.staticLimitUa,
+      conditionsAssumed: ['temperature_c'], sourceDetail: { kind: 'OFFLINE_DEMO', generator: 'offline-demo', seed: settings.seed },
     };
     this.audit = [{
       id: `offline-${Date.now()}`, timestamp: new Date().toISOString(), actor: 'offline-demo', category: 'SYSTEM',

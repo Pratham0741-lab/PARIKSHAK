@@ -1,15 +1,18 @@
 """
-CSV ingest: parsing and validation of burn-in readings for a new (unlabelled) lot.
+CSV ingest: validation of burn-in readings for a new (unlabelled) lot.
 
-Format (wide, one row per part):
-    part_id, leakage_current_ua_0h, iddq_ma_0h, propagation_delay_ns_0h,
-             leakage_current_ua_24h, iddq_ma_24h, propagation_delay_ns_24h,
-             [optional: the same three parameters for 96h and 168h]
+Parsing is done by data_engine/tabular.py, the same reader judge mode uses. It accepts:
+  * wide, long and tidy layouts;
+  * case-insensitive and fuzzy header aliases (Iddq_0h, I_0, T0, "leakage (nA) @ 24 h", ...);
+  * units nA/uA/mA/A and ps/ns/us, converted to uA / mA / ns. A converted or implausible unit must be
+    confirmed before the lot is stored;
+  * a streamed parse (large files are never held as one string).
 
 Rules (values are never zero-filled):
-  * a missing required column rejects the whole file (nothing is ingested);
+  * the production model uses all three parameters at 0h and 24h, so a file lacking one of them is
+    rejected with the missing columns listed. Judge mode can train on a parameter subset;
   * rows with an empty part ID are rejected; repeated part IDs keep the first row, later rows are rejected;
-  * non-numeric, negative or empty cells are treated as missing;
+  * non-numeric, negative or empty cells are treated as missing (listed with their file line);
   * a missing 0h/24h cell is imputed with the lot median of that column, the cell is recorded in
     `imputed_fields`, and the part is marked `insufficient_data` - it receives no Module A/B score
     and is sent to REVIEW. Imputed values are for display only and never enter a model or a metric;
@@ -19,17 +22,16 @@ Rules (values are never zero-filled):
 
 from __future__ import annotations
 
-import csv
-import io
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from data_engine.tabular import Table, TableError, read_table
+
 PARAMETERS = ("leakage_current_ua", "iddq_ma", "propagation_delay_ns")
 REQUIRED_INTERVALS = (0, 24)
 OPTIONAL_INTERVALS = (96, 168)
-PART_ID_ALIASES = ("part_id", "serial_number", "serial", "part")
 
 
 def column(p: str, h: int) -> str:
@@ -43,7 +45,7 @@ REQUIRED_COLUMNS = [column(p, h) for h in REQUIRED_INTERVALS for p in PARAMETERS
 class Issue:
     row: int
     message: str
-    severity: str  # "error" (row/cell rejected) | "warning" (value imputed)
+    severity: str  # "error" (row/cell rejected) | "warning" (value imputed, column ignored, unit check)
     part_id: Optional[str] = None
     column: Optional[str] = None
 
@@ -73,6 +75,13 @@ class IngestResult:
     missing_cells: int = 0
     imputed_cells: int = 0
     missing_columns: List[str] = field(default_factory=list)
+    conditions: Dict[str, Any] = field(default_factory=dict)  # lot-level test conditions found in the file
+    layout: Optional[str] = None
+    column_map: List[Dict[str, Any]] = field(default_factory=list)
+    units: Dict[str, Any] = field(default_factory=dict)
+    needs_unit_confirmation: bool = False
+    sha256: str = ""
+    n_lots_in_file: int = 0
 
     @property
     def insufficient_data_parts(self) -> int:
@@ -90,75 +99,70 @@ class IngestResult:
             "imputed_cells": self.imputed_cells,
             "insufficient_data_parts": self.insufficient_data_parts,
             "missing_columns": self.missing_columns,
-            "issues": [i.as_dict() for i in self.issues],
+            "conditions_in_file": self.conditions,
+            "layout": self.layout,
+            "column_map": self.column_map,
+            "units": self.units,
+            "needs_unit_confirmation": self.needs_unit_confirmation,
+            "sha256": self.sha256,
+            "n_lots_in_file": self.n_lots_in_file,
+            "issues": [i.as_dict() for i in self.issues[:1000]],
+            "issues_truncated": max(0, len(self.issues) - 1000),
         }
 
 
-def _parse_cell(raw: Optional[str]):
-    """Returns (value or None, problem) where problem is None | 'missing' | 'non_numeric' | 'negative'."""
-    if raw is None or raw.strip() == "":
-        return None, "missing"
+def _missing_required(column_map: List[Dict[str, Any]], present_params: List[str]) -> List[str]:
+    mapped = {(c.get("param"), c.get("hour")) for c in column_map if c.get("role") == "reading"}
+    long_params = {c.get("param") for c in column_map if c.get("role") == "reading" and c.get("hour") is None}
+    return [column(p, h) for h in REQUIRED_INTERVALS for p in PARAMETERS
+            if (p, h) not in mapped and not (p in long_params and p in present_params)]
+
+
+def parse_csv(source, test_parameter: Optional[str] = None, units: Optional[Dict[str, str]] = None) -> IngestResult:
+    """`source`: CSV text or a text stream. `units`: {parameter: unit} overrides for the file's units."""
     try:
-        v = float(raw.strip())
-    except ValueError:
-        return None, "non_numeric"
-    if not np.isfinite(v):
-        return None, "non_numeric"
-    if v < 0:
-        return None, "negative"
-    return v, None
+        t: Table = read_table(source, default_parameter=test_parameter, unit_overrides=units)
+    except TableError as exc:
+        missing = _missing_required(exc.column_map, []) if exc.column_map else []
+        return IngestResult(ok=False, parts=[], issues=[Issue(1, str(exc), "error")], missing_columns=missing,
+                            column_map=exc.column_map)
+    except ValueError as exc:  # e.g. an unknown test_parameter
+        return IngestResult(ok=False, parts=[], issues=[Issue(1, str(exc), "error")])
 
-
-def parse_csv(text: str) -> IngestResult:
-    reader = csv.reader(io.StringIO(text.strip()))
-    rows = [r for r in reader if any(c.strip() for c in r)]
-    if not rows:
-        return IngestResult(ok=False, parts=[], issues=[Issue(0, "CSV is empty", "error")])
-
-    header = [h.strip().lower() for h in rows[0]]
-    idx = {h: i for i, h in enumerate(header)}
-    id_col = next((a for a in PART_ID_ALIASES if a in idx), None)
-    missing = ([] if id_col else ["part_id"]) + [c for c in REQUIRED_COLUMNS if c not in idx]
+    missing = [c for c in _missing_required(t.column_map, t.params) if c.rsplit("_", 1)[0] not in t.params]
+    res = IngestResult(ok=not missing, parts=[], issues=[Issue(**i) for i in t.issues], rows_total=t.rows_total,
+                       rows_rejected=t.rows_rejected, duplicate_part_ids=t.duplicate_part_ids,
+                       non_numeric_cells=t.non_numeric_cells, missing_cells=t.missing_cells,
+                       missing_columns=missing, conditions=t.conditions, layout=t.layout, column_map=t.column_map,
+                       units=t.units, needs_unit_confirmation=t.needs_unit_confirmation, sha256=t.sha256,
+                       n_lots_in_file=t.n_lots)
     if missing:
-        return IngestResult(
-            ok=False, parts=[], rows_total=len(rows) - 1, missing_columns=missing,
-            issues=[Issue(1, f"Missing required column(s): {', '.join(missing)}", "error")],
-        )
-    optional_present = [h for h in OPTIONAL_INTERVALS if all(column(p, h) in idx for p in PARAMETERS)]
+        res.issues.insert(0, Issue(1, f"Missing required column(s): {', '.join(missing)}. The production model uses "
+                                      "leakage, IDDQ and delay at 0h and 24h; to screen with fewer parameters, train "
+                                      "a matching model in Judge mode.", "error"))
+        return res
 
-    res = IngestResult(ok=True, parts=[], issues=[], rows_total=len(rows) - 1)
-    seen: Dict[str, int] = {}
-    for rnum, r in enumerate(rows[1:], start=2):
-        pid = r[idx[id_col]].strip() if idx[id_col] < len(r) else ""
-        if not pid:
-            res.rows_rejected += 1
-            res.issues.append(Issue(rnum, "Empty part ID; row rejected", "error"))
-            continue
-        if pid in seen:
-            res.rows_rejected += 1
-            res.duplicate_part_ids += 1
-            res.issues.append(Issue(rnum, f"Duplicate part ID (first seen on row {seen[pid]}); row rejected", "error", pid))
-            continue
-        seen[pid] = rnum
-
+    if t.n_lots > 1:
+        res.issues.insert(0, Issue(1, f"The file lists {t.n_lots} lots; ingest stores them as ONE lot, so lot-relative "
+                                      "statistics mix them. Split the file per lot for correct screening.", "warning"))
+    df = t.df
+    order = sorted(df["component_id"].unique(), key=lambda c: t.part_rows.get(str(c), 0))
+    by_part = {cid: g for cid, g in df.groupby("component_id", sort=False)}
+    intervals_present = set(df["interval_hours"].unique())
+    for cid in order:
+        g = by_part[cid].set_index("interval_hours")
         values: Dict[int, Dict[str, Optional[float]]] = {}
-        for h in (*REQUIRED_INTERVALS, *optional_present):
-            values[h] = {}
-            for p in PARAMETERS:
-                c = column(p, h)
-                raw = r[idx[c]] if idx[c] < len(r) else None
-                v, problem = _parse_cell(raw)
-                values[h][p] = v
-                if problem == "missing":
-                    res.missing_cells += 1
-                elif problem:
-                    res.non_numeric_cells += 1
-                    res.issues.append(Issue(rnum, f"{'Negative' if problem == 'negative' else 'Non-numeric'} value "
-                                                  f"{raw!r}; treated as missing", "error", pid, c))
-        res.parts.append(ParsedPart(part_id=pid, row=rnum, values=values))
+        for h in (*REQUIRED_INTERVALS, *OPTIONAL_INTERVALS):
+            if h not in intervals_present:
+                continue
+            values[h] = {p: (None if h not in g.index or not np.isfinite(g.at[h, p]) else float(g.at[h, p]))
+                         for p in PARAMETERS}
+        res.parts.append(ParsedPart(part_id=str(cid), row=t.part_rows.get(str(cid), 0), values=values))
 
     # Impute missing cells with the lot median of that column (display only), never with 0.
-    for h in (*REQUIRED_INTERVALS, *optional_present):
+    for h in (*REQUIRED_INTERVALS, *OPTIONAL_INTERVALS):
+        if h not in intervals_present:
+            continue
         for p in PARAMETERS:
             observed = [pp.values[h][p] for pp in res.parts if pp.values[h][p] is not None]
             med = float(np.median(observed)) if observed else None
@@ -177,6 +181,7 @@ def parse_csv(text: str) -> IngestResult:
                 res.issues.append(Issue(pp.row, f"Missing {column(p, h)} imputed with lot median {med:.4g} "
                                                 f"(display only)", "warning", pp.part_id, column(p, h)))
     for pp in res.parts:
-        if any(pp.values[h][p] is None for h in REQUIRED_INTERVALS for p in PARAMETERS):
+        if any(pp.values.get(h, {}).get(p) is None for h in REQUIRED_INTERVALS for p in PARAMETERS):
             pp.insufficient_data = True
+    res.issues.sort(key=lambda i: (i.row, i.severity != "error"))
     return res

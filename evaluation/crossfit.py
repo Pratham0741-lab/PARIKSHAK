@@ -19,7 +19,7 @@ from ml_engine.features import PARAMETERS, TARGET_INTERVAL
 from ml_engine.module_b_drift import linear_extrapolation_baseline
 from ml_engine.screening import early_readings_only
 
-TRUTH_COLUMNS = ("ground_truth_flag", "ground_truth_label")
+TRUTH_COLUMNS = ("ground_truth_flag", "ground_truth_label", "latent_signal_24h")
 
 
 @dataclass

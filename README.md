@@ -51,11 +51,23 @@ cd frontend && node scripts/screenshots.mjs # all 8 screens -> reports/screensho
 ## How it works
 
 **Data.** Each part has leakage current (µA), IDDQ (mA) and propagation delay (ns) at 0h, 24h, 96h
-and 168h of burn-in (`burn_in_readings`). The seeded generator (`data_engine/generator.py`) produces
-labelled lots, including benign high-baseline lots and defect classes that stay below the datasheet
-limit. CSV ingest (`POST /api/v1/ingest`) stores unlabelled production lots; missing cells are
-imputed with the lot median and flagged (never zero-filled), and parts missing a 0h/24h value are
-sent to REVIEW without a model score.
+and 168h of burn-in (`burn_in_readings`); each lot stores its test conditions (temperature, monitored
+parameter, unit, static limit; defaulted values are flagged "assumed"). Two seeded generators:
+`physics` (default, `data_engine/physics_generator.py`: log-normal lots, Arrhenius temperature
+dependence, power-law drift, heteroscedastic noise, latent parts with clear/partial/no 24h signal,
+40 lots) and `legacy` (`data_engine/generator.py`, `--generator legacy`). The evaluation report runs a
+pinned protocol for each and lists them side by side. CSV ingest (`POST /api/v1/ingest`; large files go to `POST /api/v1/ingest/stream`
+as a raw text/csv body) stores unlabelled production lots. The reader (`data_engine/tabular.py`,
+shared with judge mode):
+- accepts wide, long and tidy layouts and any common delimiter;
+- matches headers case-insensitively and fuzzily (`Iddq_0h`, `I_0`, `T0`, `leakage (nA) @ 24 h`);
+- converts nA/uA/mA and ps/ns/us to canonical units. A converted or implausible unit must be confirmed in the UI;
+- lists every issue with its file line;
+- parses row by row, so it is tested on 10k+ parts.
+
+Missing cells are imputed with the lot median and flagged (never zero-filled), and parts missing a
+0h/24h value are sent to REVIEW without a model score. `examples/ingest_messy.csv`
+(`scripts/make_messy_ingest.py`) exercises all of these cases.
 
 **Only 0h and 24h readings are model inputs.** `ml_engine/features.py` drops later intervals before
 building features and raises if a 96h/168h-derived column reaches a feature matrix.
@@ -86,6 +98,19 @@ coverage, and catch rate per defect class.
 lot median), Module B's TreeSHAP contributions (LightGBM `pred_contrib`), the safety-slope
 derivation, the prediction interval and the static-limit status, rendered into a plain-language
 justification (`ml_engine/explain.py`, `GET /api/v1/components/{id}/explain`).
+
+**Judge mode** (UI screen "Judge", `/api/v1/judge/*`, `ml_engine/judge.py`):
+1. Train on an uploaded file with 168h readings (`POST /judge/train`, background job). Labels are
+   optional; if present they are used only to choose thresholds on out-of-fold predictions. Without
+   labels, the labels-free rule LFR-1 (`evaluation/rules.py`: static limit, lot-relative drift or
+   168h outlier at the fixed Iglewicz-Hoaglin cut-off 3.5) stands in. The UI shows "Trained on
+   <file>, <n> parts, <k> lots", the data sha256 and a lot-grouped out-of-fold estimate. For a file
+   with fewer than 3 lots the estimate uses a within-file split labelled "single-lot, less reliable".
+2. Predict from 0h/24h (`POST /judge/predict`; 96h/168h are ignored). Download `preds.csv` with
+   the columns Part_ID, Predicted_168h, PI_low, PI_high, Anomaly_score, Flag, Reason.
+3. Score against a ground-truth file (`POST /judge/score`). The panel prints the command that reproduces it:
+   `python -m evaluation.score --predictions preds.csv --truth truth.csv`.
+Example files: `python scripts/make_judge_files.py` writes `examples/judge/{train,test,truth}.csv`.
 
 **QA workflow.** Every disposition requires an inspector ID and a written justification
 (`POST /api/v1/reviews/{id}/action`) and is written to the audit log (`GET /api/v1/audit`).

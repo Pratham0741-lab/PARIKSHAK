@@ -25,6 +25,8 @@ import pandas as pd
 from sklearn.covariance import LedoitWolf
 from sklearn.ensemble import IsolationForest
 
+from ml_engine.features import available_params
+
 logger = logging.getLogger(__name__)
 
 EARLY_INTERVALS: Tuple[int, int] = (0, 24)
@@ -59,6 +61,7 @@ class LotOutlierDetector:
         self.covariance_estimator_: LedoitWolf | None = None
         self.isolation_forest_: IsolationForest | None = None
         self.iso_norm_params_: Dict[str, float] = {}
+        self.params_: Tuple[str, ...] = self.PARAMETERS  # parameters present in the training data
 
     @staticmethod
     def _compute_mad(arr: np.ndarray) -> float:
@@ -73,10 +76,10 @@ class LotOutlierDetector:
         pivot = df_early.pivot_table(
             index=["component_id", "lot_id"],
             columns="interval_hours",
-            values=list(self.PARAMETERS),
+            values=list(self.params_),
         ).reset_index()
         pivot.columns = [f"{c[0]}_{c[1]}" if c[1] != "" else c[0] for c in pivot.columns]
-        pivot = pivot.dropna(subset=[f"{p}_{h}" for p in self.PARAMETERS for h in EARLY_INTERVALS])
+        pivot = pivot.dropna(subset=[f"{p}_{h}" for p in self.params_ for h in EARLY_INTERVALS])
         return pivot.sort_values(["lot_id", "component_id"]).reset_index(drop=True)
 
     def lot_profiles(self, piv: pd.DataFrame) -> Dict[Any, Dict[str, Dict[str, float]]]:
@@ -84,7 +87,7 @@ class LotOutlierDetector:
         profiles: Dict[Any, Dict[str, Dict[str, float]]] = {}
         for lot_id, lot_data in piv.groupby("lot_id"):
             profile: Dict[str, Dict[str, float]] = {}
-            for p in self.PARAMETERS:
+            for p in self.params_:
                 v_avg = (lot_data[f"{p}_0"].to_numpy() + lot_data[f"{p}_24"].to_numpy()) / 2.0
                 profile[p] = {"median": float(np.median(v_avg)), "mad": self._compute_mad(v_avg)}
             profiles[lot_id] = profile
@@ -97,11 +100,11 @@ class LotOutlierDetector:
     def _lot_normalise_with_stats(self, piv: pd.DataFrame):
         profiles = self.lot_profiles(piv)
         n = len(piv)
-        Z = np.zeros((n, len(self.PARAMETERS)))
-        Z0 = np.zeros((n, len(self.PARAMETERS)))
+        Z = np.zeros((n, len(self.params_)))
+        Z0 = np.zeros((n, len(self.params_)))
         stats: Dict[str, Dict[str, np.ndarray]] = {}
         lot_ids = piv["lot_id"].to_numpy()
-        for j, p in enumerate(self.PARAMETERS):
+        for j, p in enumerate(self.params_):
             med = np.array([profiles[lot][p]["median"] for lot in lot_ids])
             mad = np.array([profiles[lot][p]["mad"] for lot in lot_ids])
             v0 = piv[f"{p}_0"].to_numpy()
@@ -113,6 +116,9 @@ class LotOutlierDetector:
 
     def fit(self, df: pd.DataFrame) -> LotOutlierDetector:
         """Fits Ledoit-Wolf covariance and Isolation Forest on lot-normalised (MAD-unit) training data."""
+        self.params_ = available_params(df)
+        if not self.params_:
+            raise ValueError("no parameter has both 0h and 24h readings")
         piv = self._extract_early_features(df)
         Z, _ = self._lot_normalise(piv)
 
@@ -171,7 +177,11 @@ class LotOutlierDetector:
                 "module_a_flag": decision >= self.threshold,
             }
         )
-        for j, p in enumerate(self.PARAMETERS):
+        for p in self.PARAMETERS:  # parameters absent from the data are reported as NaN, never imputed
+            if p not in self.params_:
+                for c in ("robust_z", "a_contrib", "a_value", "a_lot_median", "a_lot_mad"):
+                    out[f"{c}_{p}"] = np.nan
+        for j, p in enumerate(self.params_):
             out[f"robust_z_{p}"] = np.round(Z[:, j], 3)
             # Exact additive decomposition of the decision score: contribution_p = max(0, z_p).
             out[f"a_contrib_{p}"] = np.round(np.maximum(0.0, Z[:, j]), 4)

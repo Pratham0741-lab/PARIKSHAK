@@ -1,0 +1,273 @@
+{
+  "candidates": [
+    {
+      "feature_set": "v1",
+      "id": "v1-raw-g0",
+      "lgb_params": {
+        "learning_rate": 0.05,
+        "min_child_samples": 5,
+        "n_estimators": 100
+      },
+      "target": "raw"
+    },
+    {
+      "feature_set": "v2",
+      "id": "v2-raw-g0",
+      "lgb_params": {
+        "learning_rate": 0.05,
+        "min_child_samples": 5,
+        "n_estimators": 100
+      },
+      "target": "raw"
+    },
+    {
+      "feature_set": "v2",
+      "id": "v2-raw-g2",
+      "lgb_params": {
+        "learning_rate": 0.05,
+        "min_child_samples": 30,
+        "n_estimators": 200,
+        "num_leaves": 7,
+        "reg_lambda": 5.0
+      },
+      "target": "raw"
+    },
+    {
+      "feature_set": "v2",
+      "id": "v2-drift-g0",
+      "lgb_params": {
+        "learning_rate": 0.05,
+        "min_child_samples": 5,
+        "n_estimators": 100
+      },
+      "target": "drift"
+    },
+    {
+      "feature_set": "v2",
+      "id": "v2-drift-g2",
+      "lgb_params": {
+        "learning_rate": 0.05,
+        "min_child_samples": 30,
+        "n_estimators": 200,
+        "num_leaves": 7,
+        "reg_lambda": 5.0
+      },
+      "target": "drift"
+    },
+    {
+      "feature_set": "v2",
+      "id": "v2-log_ratio-g0",
+      "lgb_params": {
+        "learning_rate": 0.05,
+        "min_child_samples": 5,
+        "n_estimators": 100
+      },
+      "target": "log_ratio"
+    },
+    {
+      "feature_set": "v2",
+      "id": "v2-log_ratio-g2",
+      "lgb_params": {
+        "learning_rate": 0.05,
+        "min_child_samples": 30,
+        "n_estimators": 200,
+        "num_leaves": 7,
+        "reg_lambda": 5.0
+      },
+      "target": "log_ratio"
+    }
+  ],
+  "config": {
+    "components_per_lot": 100,
+    "criterion": "mean over parameters of MAE / linear-baseline MAE",
+    "generator": "physics",
+    "inner_folds": 3,
+    "num_lots": 40,
+    "outer_folds": 5,
+    "seed": 42
+  },
+  "linear_baseline": {
+    "iddq_ma": {
+      "mae": 0.3419,
+      "rmse": 0.7071
+    },
+    "leakage_current_ua": {
+      "mae": 3.6765,
+      "rmse": 7.3912
+    },
+    "propagation_delay_ns": {
+      "mae": 0.2424,
+      "rmse": 0.305
+    }
+  },
+  "nested_estimate": {
+    "metrics": {
+      "iddq_ma": {
+        "mae": 0.149,
+        "rmse": 0.5415
+      },
+      "leakage_current_ua": {
+        "mae": 1.9059,
+        "rmse": 6.1036
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0342,
+        "rmse": 0.0431
+      }
+    },
+    "per_fold_choice": [
+      {
+        "chosen": "v2-log_ratio-g2",
+        "fold": 0,
+        "inner_criterion": 0.378
+      },
+      {
+        "chosen": "v2-log_ratio-g2",
+        "fold": 1,
+        "inner_criterion": 0.3783
+      },
+      {
+        "chosen": "v2-log_ratio-g2",
+        "fold": 2,
+        "inner_criterion": 0.3757
+      },
+      {
+        "chosen": "v2-log_ratio-g2",
+        "fold": 3,
+        "inner_criterion": 0.3742
+      },
+      {
+        "chosen": "v2-log_ratio-g2",
+        "fold": 4,
+        "inner_criterion": 0.4016
+      }
+    ]
+  },
+  "original_v1_raw_g0": {
+    "iddq_ma": {
+      "mae": 0.1977,
+      "rmse": 0.5671
+    },
+    "leakage_current_ua": {
+      "mae": 2.6223,
+      "rmse": 6.2148
+    },
+    "propagation_delay_ns": {
+      "mae": 0.0374,
+      "rmse": 0.05
+    }
+  },
+  "per_candidate_outer_metrics_not_used_for_selection": {
+    "v1-raw-g0": {
+      "iddq_ma": {
+        "mae": 0.1977,
+        "rmse": 0.5671
+      },
+      "leakage_current_ua": {
+        "mae": 2.6223,
+        "rmse": 6.2148
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0374,
+        "rmse": 0.05
+      }
+    },
+    "v2-drift-g0": {
+      "iddq_ma": {
+        "mae": 0.2021,
+        "rmse": 0.5619
+      },
+      "leakage_current_ua": {
+        "mae": 2.5899,
+        "rmse": 6.1718
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0347,
+        "rmse": 0.0437
+      }
+    },
+    "v2-drift-g2": {
+      "iddq_ma": {
+        "mae": 0.1871,
+        "rmse": 0.5476
+      },
+      "leakage_current_ua": {
+        "mae": 2.3177,
+        "rmse": 5.9263
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0342,
+        "rmse": 0.0431
+      }
+    },
+    "v2-log_ratio-g0": {
+      "iddq_ma": {
+        "mae": 0.1534,
+        "rmse": 0.542
+      },
+      "leakage_current_ua": {
+        "mae": 1.9933,
+        "rmse": 6.1794
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0347,
+        "rmse": 0.0436
+      }
+    },
+    "v2-log_ratio-g2": {
+      "iddq_ma": {
+        "mae": 0.149,
+        "rmse": 0.5415
+      },
+      "leakage_current_ua": {
+        "mae": 1.9059,
+        "rmse": 6.1036
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0342,
+        "rmse": 0.0431
+      }
+    },
+    "v2-raw-g0": {
+      "iddq_ma": {
+        "mae": 0.1994,
+        "rmse": 0.5708
+      },
+      "leakage_current_ua": {
+        "mae": 2.6034,
+        "rmse": 6.1637
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0375,
+        "rmse": 0.0506
+      }
+    },
+    "v2-raw-g2": {
+      "iddq_ma": {
+        "mae": 0.1863,
+        "rmse": 0.5504
+      },
+      "leakage_current_ua": {
+        "mae": 2.3831,
+        "rmse": 5.9888
+      },
+      "propagation_delay_ns": {
+        "mae": 0.0377,
+        "rmse": 0.0517
+      }
+    }
+  },
+  "production_choice": {
+    "all_candidate_criteria": {
+      "v1-raw-g0": 0.4818,
+      "v2-drift-g0": 0.4795,
+      "v2-drift-g2": 0.4395,
+      "v2-log_ratio-g0": 0.3779,
+      "v2-log_ratio-g2": 0.3651,
+      "v2-raw-g0": 0.482,
+      "v2-raw-g2": 0.4495
+    },
+    "id": "v2-log_ratio-g2",
+    "inner_cv_criterion": 0.3651
+  }
+}

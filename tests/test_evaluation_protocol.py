@@ -142,7 +142,10 @@ def test_production_module_b_config_comes_from_the_nested_study():
 
     cfg = _json.loads(CONFIG_PATH.read_text())
     assert "module_b_study" in cfg["selected_by"]
-    study = _json.loads((CONFIG_PATH.parent.parent / "reports" / "module_b_study.json").read_text())
+    import re as _re
+
+    study_file = _re.search(r"see (reports/[A-Za-z0-9_.]+)", cfg["selected_by"]).group(1)
+    study = _json.loads((CONFIG_PATH.parent.parent / study_file).read_text())
     assert study["production_choice"]["id"] == cfg["candidate_id"]
     # the production choice is the argmin of its recorded inner-CV criterion
     crit = study["production_choice"]["all_candidate_criteria"]

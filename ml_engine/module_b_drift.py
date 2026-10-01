@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import lightgbm as lgb
 import numpy as np
@@ -28,6 +28,7 @@ import pandas as pd
 from ml_engine.features import (
     PARAMETERS,
     assert_no_future_features,
+    available_params,
     build_early_features,
     extract_targets,
     feature_columns,
@@ -93,6 +94,7 @@ class DriftPredictor:
         self.models_: Dict[str, lgb.LGBMRegressor] = {}
         self.quantile_models_: Dict[str, Dict[float, lgb.LGBMRegressor]] = {}
         self.feature_columns_: List[str] = []
+        self.params_: Tuple[str, ...] = PARAMETERS  # parameters with a trained model
 
     def config(self) -> Dict[str, Any]:
         return {"feature_set": self.feature_set, "target": self.target, "lgb_params": self.lgb_params}
@@ -104,12 +106,18 @@ class DriftPredictor:
         )
 
     def features(self, df: pd.DataFrame) -> pd.DataFrame:
-        return build_early_features(df, self.feature_set)
+        return build_early_features(df, self.feature_set, params=self.params_)
 
     def fit(self, df: pd.DataFrame) -> DriftPredictor:
         """Trains one regressor per parameter. `df` must contain 0h, 24h and 168h rows."""
+        # Train one model per parameter that has 0h, 24h AND 168h data; others are simply absent.
+        early_params = available_params(df)
+        self.params_ = tuple(p for p in early_params if p in df.columns
+                             and df.loc[df["interval_hours"] == 168, p].notna().any())
+        if not self.params_:
+            raise ValueError("Training data must contain 0h, 24h and 168h readings for at least one parameter.")
         feats = self.features(df)
-        targets = extract_targets(df)
+        targets = extract_targets(df, self.params_).dropna()
         common = feats.index.intersection(targets.index)
         if len(common) == 0:
             raise ValueError("Training data must contain 0h, 24h and 168h readings.")
@@ -117,7 +125,7 @@ class DriftPredictor:
         self.feature_columns_ = feature_columns(feats)
         X = feats[self.feature_columns_]
         assert_no_future_features(X.columns)
-        for p in self.PARAMETERS:
+        for p in self.params_:
             y = to_target(targets.loc[common, f"{p}_168"].to_numpy(float), feats[f"{p}_v24"].to_numpy(float), self.target)
             self.models_[p] = self._new_model().fit(X, y)
             self.quantile_models_[p] = {
@@ -130,7 +138,7 @@ class DriftPredictor:
         assert_no_future_features(X.columns)
         return {
             p: from_target(self.models_[p].predict(X), feats[f"{p}_v24"].to_numpy(float), self.target)
-            for p in self.PARAMETERS
+            for p in self.params_
         }
 
     def contributions(self, feats: pd.DataFrame, top_k: int = 8) -> List[Dict[str, Any]]:
@@ -141,12 +149,12 @@ class DriftPredictor:
         top_k features by |contribution|, the sum of the rest, and the bias (expected value).
         """
         X = feats[self.feature_columns_]
-        per_param = {p: self.models_[p].predict(X, pred_contrib=True) for p in self.PARAMETERS}
+        per_param = {p: self.models_[p].predict(X, pred_contrib=True) for p in self.params_}
         out: List[Dict[str, Any]] = []
         names = list(self.feature_columns_)
         for i in range(len(X)):
             entry: Dict[str, Any] = {"target": self.target}
-            for p in self.PARAMETERS:
+            for p in self.params_:
                 row = per_param[p][i]
                 contrib, bias = row[:-1], float(row[-1])
                 order = np.argsort(-np.abs(contrib), kind="stable")
@@ -168,15 +176,23 @@ class DriftPredictor:
         preds = self.predict_values(feats)
         X = feats[self.feature_columns_]
         bounds = {}
+        n = len(feats)
         for p in self.PARAMETERS:
+            if p not in self.params_:  # no model for this parameter: forecasts are absent (NaN), not guessed
+                preds[p] = np.full(n, np.nan)
+                bounds[f"q_lo_{SHORT[p]}_168h"] = np.full(n, np.nan)
+                bounds[f"q_hi_{SHORT[p]}_168h"] = np.full(n, np.nan)
+                continue
             v24 = feats[f"{p}_v24"].to_numpy(float)
             lo = from_target(self.quantile_models_[p][QUANTILES[0]].predict(X), v24, self.target)
             hi = from_target(self.quantile_models_[p][QUANTILES[1]].predict(X), v24, self.target)
             bounds[f"q_lo_{SHORT[p]}_168h"] = np.round(np.minimum(lo, hi), 4)  # guard against quantile crossing
             bounds[f"q_hi_{SHORT[p]}_168h"] = np.round(np.maximum(lo, hi), 4)
-        leak_0 = feats["leakage_current_ua_v0"].to_numpy()
-        # Predicted 168h drift rate of leakage current (uA/hr), from 0h to the 168h forecast.
-        drift_slope = (preds["leakage_current_ua"] - leak_0) / 168.0
+        # Predicted 168h drift rate of leakage current (uA/hr), from 0h to the 168h forecast (NaN if no leakage).
+        if "leakage_current_ua" in self.params_:
+            drift_slope = (preds["leakage_current_ua"] - feats["leakage_current_ua_v0"].to_numpy()) / 168.0
+        else:
+            drift_slope = np.full(n, np.nan)
         return pd.DataFrame(
             {
                 "component_id": feats.index.to_numpy(),
@@ -194,5 +210,8 @@ def linear_extrapolation_baseline(df: pd.DataFrame) -> pd.DataFrame:
     feats = build_early_features(df)
     out = pd.DataFrame(index=feats.index)
     for p in PARAMETERS:
+        if f"{p}_v0" not in feats.columns:
+            out[f"{p}_168"] = np.nan
+            continue
         out[f"{p}_168"] = feats[f"{p}_v0"] + 7.0 * (feats[f"{p}_v24"] - feats[f"{p}_v0"])
     return out

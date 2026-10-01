@@ -11,7 +11,7 @@
  */
 
 import {
-  ApiMode, AuditEvent, BenchmarkMetrics, CostCurve, Decision, Explanation, IngestResult, IngestSummary, Lot,
+  ApiMode, AuditEvent, BenchmarkMetrics, CostCurve, Decision, Explanation, IngestOptions, IngestResult, IngestSummary, Lot,
   PARAMS, Param, Part, PartStatus, Prediction, Reading, SystemConfig, Verdict,
 } from './types';
 import { OfflineDemoApi } from './offlineDemo';
@@ -28,9 +28,10 @@ export interface ParikshakApi {
   getMetrics(): Promise<BenchmarkMetrics | null>;
   getCostCurve(module: 'A' | 'B'): Promise<CostCurve | null>;
   validateCsv(csv: string): Promise<IngestSummary>;
-  ingestCsv(csv: string, lotNumber?: string, actor?: string): Promise<IngestResult>;
+  ingestCsv(csv: string, lotNumber?: string, actor?: string, opts?: IngestOptions): Promise<IngestResult>;
 }
 
+const STREAM_THRESHOLD = 2_000_000; // characters; above this the CSV is sent to /ingest/stream
 export const DEFAULT_API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000/api/v1';
 const BUILD_MODE: ApiMode = (import.meta.env.VITE_API_MODE as string | undefined) === 'offline' ? 'offline' : 'http';
 const MODE_KEY = 'parikshak.apiMode';
@@ -229,6 +230,11 @@ export function mapIngestSummary(v: Json): IngestSummary {
     insufficientDataParts: v.insufficient_data_parts ?? 0,
     missingColumns: v.missing_columns ?? [],
     issues: (v.issues ?? []).map((i: Json) => ({ row: i.row, message: i.message, severity: i.severity, partId: i.part_id, column: i.column })),
+    layout: v.layout ?? null,
+    columnMap: v.column_map ?? [],
+    units: v.units ?? {},
+    needsUnitConfirmation: !!v.needs_unit_confirmation,
+    nLotsInFile: v.n_lots_in_file ?? 0,
   };
 }
 
@@ -282,6 +288,8 @@ export class HttpApi implements ParikshakApi {
       id: l.id, lotNumber: l.lot_number, waferId: l.wafer_id ?? null, status: l.status, source: l.source,
       createdAt: l.created_at, totalParts: l.total_components, passCount: l.pass_count,
       reviewCount: l.review_count, rejectCount: l.reject_count,
+      temperatureC: num(l.temperature_c), testParameter: l.test_parameter ?? null, unit: l.unit ?? null,
+      staticLimit: num(l.static_limit), conditionsAssumed: l.conditions_assumed ?? [], sourceDetail: l.source_detail ?? null,
     }));
   }
 
@@ -346,15 +354,27 @@ export class HttpApi implements ParikshakApi {
   }
 
   async validateCsv(csv: string): Promise<IngestSummary> {
+    if (csv.length > STREAM_THRESHOLD) {
+      const r = await this.req<Json>(`/ingest/stream?validate_only=true`, { method: 'POST', body: csv, headers: { 'Content-Type': 'text/csv' } });
+      return mapIngestSummary(r.validation);
+    }
     return mapIngestSummary(await this.req<Json>('/ingest/validate', { method: 'POST', body: JSON.stringify({ csv }) }));
   }
 
-  async ingestCsv(csv: string, lotNumber?: string, actor?: string): Promise<IngestResult> {
+  async ingestCsv(csv: string, lotNumber?: string, actor?: string, opts: IngestOptions = {}): Promise<IngestResult> {
     try {
-      const r = await this.req<Json>('/ingest', {
-        method: 'POST',
-        body: JSON.stringify({ csv, lot_number: lotNumber || undefined, actor: actor ?? 'QA Inspector' }),
-      });
+      // Large files go to the streamed endpoint as a raw text/csv body (parsed row by row server-side).
+      const big = csv.length > STREAM_THRESHOLD;
+      const q = new URLSearchParams({ actor: actor ?? 'QA Inspector', units_confirmed: String(!!opts.unitsConfirmed) });
+      if (lotNumber) q.set('lot_number', lotNumber);
+      if (opts.filename) q.set('filename', opts.filename);
+      const r = big
+        ? await this.req<Json>(`/ingest/stream?${q}`, { method: 'POST', body: csv, headers: { 'Content-Type': 'text/csv' } })
+        : await this.req<Json>('/ingest', {
+          method: 'POST',
+          body: JSON.stringify({ csv, lot_number: lotNumber || undefined, actor: actor ?? 'QA Inspector',
+            filename: opts.filename, units_confirmed: !!opts.unitsConfirmed }),
+        });
       return {
         lotId: r.lot_id, lotNumber: r.lot_number, validation: mapIngestSummary(r.validation),
         screening: r.screening ? { nScreened: r.screening.n_screened, nInsufficientData: r.screening.n_insufficient_data, verdicts: r.screening.verdicts } : null,

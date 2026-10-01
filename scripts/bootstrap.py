@@ -60,13 +60,15 @@ def check_and_seed_database() -> None:
     print(f"[*] Current database state: {comp_count} components, {pred_count} model predictions.", flush=True)
 
     if comp_count == 0:
-        print("[*] Database is empty. Seeding 10 lots with 1,000 components and 4,000 readings...", flush=True)
+        print(f"[*] Database is empty. Seeding {settings.DEFAULT_NUM_LOTS} lots x {settings.DEFAULT_COMPONENTS_PER_LOT} parts "
+              f"({settings.DEFAULT_GENERATOR} generator, seed {settings.SYNTHETIC_RANDOM_SEED})...", flush=True)
         res = subprocess.run([
             sys.executable,
             "data_engine/seed_db.py",
-            "--lots", "10",
-            "--components", "100",
-            "--seed", "42",
+            "--lots", str(settings.DEFAULT_NUM_LOTS),
+            "--components", str(settings.DEFAULT_COMPONENTS_PER_LOT),
+            "--seed", str(settings.SYNTHETIC_RANDOM_SEED),
+            "--generator", settings.DEFAULT_GENERATOR,
         ])
         if res.returncode != 0:
             print("[FATAL] Database seeding failed.", flush=True)

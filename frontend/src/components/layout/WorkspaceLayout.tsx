@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { TopRail } from './TopRail';
+import { DataSourceBar } from './DataSourceBar';
 import { StatusFooter } from './StatusFooter';
 import { KeyboardHelpModal } from './KeyboardHelpModal';
 import { DevControlModal } from './DevControlModal';
@@ -19,6 +20,7 @@ export const WorkspaceLayout: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col bg-pagebg text-main overflow-hidden select-none">
       <TopRail />
+      <DataSourceBar />
       {mode === 'offline' && (
         <div className="bg-review-bg border-b border-review/40 text-review text-[11px] font-mono px-3 py-1 shrink-0">
           OFFLINE DEMO MODE: synthetic data screened by simple client rules on 0h/24h readings. This is not the ML model;

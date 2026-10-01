@@ -14,7 +14,7 @@ import pandas as pd
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
-from backend.app.models import AuditEvent, BurnInReading, Component, ModelPrediction
+from backend.app.models import AuditEvent, BurnInReading, Component, Lot, ModelPrediction
 from ml_engine.features import PARAMETERS
 from ml_engine.screening import ScreeningModel, early_readings_only, prediction_details
 
@@ -113,6 +113,8 @@ def screen_lot(session: Session, lot_id: uuid.UUID, model: Optional[ScreeningMod
         df = pd.DataFrame([r._asdict() for r in rows])
         df["component_id"] = df["component_id"].astype(str)
         df["lot_id"] = str(lot_id)
+        lot = session.get(Lot, lot_id)
+        df["temperature_c"] = lot.temperature_c if lot is not None else None
         preds = model.predict(early_readings_only(df))
         records += [prediction_record(r) for _, r in preds.iterrows()]
     records += [insufficient_record(cid) for cid in bad_ids]
