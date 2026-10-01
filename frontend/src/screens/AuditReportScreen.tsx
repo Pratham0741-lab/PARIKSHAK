@@ -52,13 +52,13 @@ export const AuditReportScreen: React.FC = () => {
   return (
     <div className="flex gap-5 max-w-[1500px] items-start" data-testid="reports">
       <div className="flex-1 rounded-card border border-hairline bg-panel p-6 flex justify-center">
-        <div className="w-[595px] min-h-[842px] bg-white border border-hairline rounded-sm p-8 text-main text-[11px] select-text space-y-4" aria-label="A4 report preview">
+        <div className="w-[794px] max-w-full min-h-[1123px] bg-white border border-hairline rounded-sm p-10 text-main text-[14px] leading-relaxed select-text space-y-6" aria-label="A4 report preview">
           <div className="border-b-2 border-navy pb-3 flex justify-between">
             <div>
-              <h1 className="font-bold text-base tracking-wider uppercase">PARIKSHAK</h1>
-              <h2 className="font-sans text-xs font-semibold text-muted">Burn-in screening report</h2>
+              <h1 className="font-bold text-[22px] tracking-wider uppercase">PARIKSHAK</h1>
+              <h2 className="text-[15px] font-semibold text-muted">Burn-in screening report</h2>
             </div>
-            <div className="text-right text-[10px] text-muted">
+            <div className="text-right text-[13px] text-muted">
               <div>Lot: <strong className="text-main">{activeLot?.lotNumber}</strong> ({activeLot?.source})</div>
               <div>Generated: {new Date().toLocaleString()}</div>
               <div>Parts: {parts.length}</div>
@@ -67,39 +67,39 @@ export const AuditReportScreen: React.FC = () => {
           </div>
 
           <Section title="1. Disposition summary">
-            <div className="grid grid-cols-3 gap-2 p-2 bg-panel border border-hairline text-center">
-              <div><div className="text-muted text-[10px]">Accept</div><strong className="text-accept">{counts.accept} ({((counts.accept / total) * 100).toFixed(1)}%)</strong></div>
-              <div><div className="text-muted text-[10px]">Reject</div><strong className="text-reject">{counts.reject} ({((counts.reject / total) * 100).toFixed(1)}%)</strong></div>
-              <div><div className="text-muted text-[10px]">Review</div><strong className="text-review">{counts.review} ({((counts.review / total) * 100).toFixed(1)}%)</strong></div>
+            <div className="grid grid-cols-3 gap-3 p-3 bg-panel border border-hairline rounded-lg text-center text-[16px]">
+              <div><div className="text-muted text-[13px]">Accept</div><strong className="text-accept">{counts.accept} ({((counts.accept / total) * 100).toFixed(1)}%)</strong></div>
+              <div><div className="text-muted text-[13px]">Reject</div><strong className="text-reject">{counts.reject} ({((counts.reject / total) * 100).toFixed(1)}%)</strong></div>
+              <div><div className="text-muted text-[13px]">Review</div><strong className="text-review">{counts.review} ({((counts.review / total) * 100).toFixed(1)}%)</strong></div>
             </div>
-            <div className="text-[10px] text-muted mt-1">{counts.byInspector} dispositions set by an inspector; the rest are model verdicts.</div>
+            <div className="text-[13px] text-muted mt-1.5">{counts.byInspector} dispositions set by an inspector; the rest are model verdicts.</div>
           </Section>
 
           <Section title={`2. Flagged parts (${flagged.length})`}>
-            <table className="w-full text-left border-collapse border border-hairline text-[10px]">
-              <thead><tr className="bg-panel text-muted"><th className="p-1">Part</th><th className="p-1 text-right">24h {PARAM_UNIT[param]}</th><th className="p-1 text-right">Fcst 168h {PARAM_UNIT[param]}</th><th className="p-1 text-right">A score</th><th className="p-1 text-right">B z</th><th className="p-1">Reason</th><th className="p-1">Status</th></tr></thead>
+            <table className="w-full text-left border-collapse border border-hairline text-[13px]">
+              <thead><tr className="bg-panel text-muted [&>th]:px-2.5 [&>th]:py-2 [&>th]:font-semibold [&>th]:whitespace-nowrap"><th className="p-1">Part</th><th className="p-1 text-right">24h {PARAM_UNIT[param]}</th><th className="p-1 text-right">Fcst 168h {PARAM_UNIT[param]}</th><th className="p-1 text-right">A score</th><th className="p-1 text-right">B z</th><th className="p-1">Reason</th><th className="p-1">Status</th></tr></thead>
               <tbody>
                 {flagged.slice(0, 40).map(p => {
                   const pr = predictions[p.partId];
                   return (
-                    <tr key={p.id} className="border-t border-hairline/40">
-                      <td className="p-1 font-semibold">{p.partId}</td>
+                    <tr key={p.id} className="border-t border-hairline/60 [&>td]:px-2.5 [&>td]:py-2">
+                      <td className="p-1 font-semibold whitespace-nowrap">{p.partId}</td>
                       <td className="p-1 text-right">{p.readings[24]?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 text-right">{pr?.moduleB?.perParam[param]?.forecast168h?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 text-right">{pr?.moduleA?.score?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 text-right">{pr?.moduleB?.score?.toFixed(2) ?? '–'}</td>
-                      <td className="p-1 truncate max-w-[150px] text-muted">{p.reason}</td>
+                      <td className="p-1 truncate max-w-[220px] text-muted" title={p.reason}>{p.reason}</td>
                       <td className="p-1"><StatusPill status={p.status} /></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-            {flagged.length > 40 && <div className="text-[10px] text-muted mt-1">… {flagged.length - 40} more in the CSV export.</div>}
+            {flagged.length > 40 && <div className="text-[13px] text-muted mt-1.5">… {flagged.length - 40} more in the CSV export.</div>}
           </Section>
 
           <Section title="3. Screening configuration">
-            <div className="space-y-0.5 text-[10px]">
+            <div className="space-y-1 text-[13px]">
               <div>Burn-in test conditions: <LotConditions lot={activeLot} /></div>
               <div>Datasheet limits: {config ? Object.entries(config.datasheetLimits).map(([k, v]) => `${k} ${v}`).join(', ') : '–'}</div>
               <div>Decision cost: FN {Number.isNaN(config?.fnCost) ? '–' : config?.fnCost} / FP {Number.isNaN(config?.fpCost) ? '–' : config?.fpCost} · threshold strategy {config?.thresholdStrategy}</div>
@@ -109,14 +109,14 @@ export const AuditReportScreen: React.FC = () => {
           </Section>
 
           <Section title="4. Sign-off">
-            <div className="grid grid-cols-3 gap-4 p-2 bg-panel border border-hairline text-[10px]">
+            <div className="grid grid-cols-3 gap-4 p-3 bg-panel border border-hairline rounded-lg text-[13px]">
               <div><div className="text-muted mb-1">Inspector ID</div><strong>{inspector || '(not set)'}</strong></div>
               <div><div className="text-muted mb-1">Signature</div><div className="border-b border-main h-4" /></div>
               <div><div className="text-muted mb-1">Date</div><div className="border-b border-main h-4" /></div>
             </div>
           </Section>
 
-          <div className="pt-3 border-t border-hairline text-[9px] text-muted break-all">
+          <div className="pt-3 border-t border-hairline text-[12px] text-muted break-all">
             SHA-256 of the exported CSV content: <strong className="text-main">{docHash}</strong>
           </div>
         </div>
@@ -132,7 +132,7 @@ export const AuditReportScreen: React.FC = () => {
           {auditEvents.length === 0 && <div className="text-muted">No audit events for this lot yet.</div>}
           {auditEvents.map(e => (
             <div key={e.id} className="rounded-lg border border-hairline bg-panel p-2.5">
-              <div className="flex justify-between text-[10px] text-muted"><span>{new Date(e.timestamp).toLocaleString()}</span><span>{e.category}</span></div>
+              <div className="flex justify-between text-xs text-muted"><span>{new Date(e.timestamp).toLocaleString()}</span><span>{e.category}</span></div>
               <div className="font-semibold">{e.action} · {e.actor}</div>
               <div className="text-xs text-muted">{e.details}</div>
             </div>
@@ -145,7 +145,7 @@ export const AuditReportScreen: React.FC = () => {
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div>
-    <div className="font-bold text-xs uppercase tracking-wide text-navy border-b border-hairline pb-1 mb-2">{title}</div>
+    <div className="font-bold text-[15px] uppercase tracking-wide text-navy border-b border-hairline pb-1.5 mb-3">{title}</div>
     {children}
   </div>
 );

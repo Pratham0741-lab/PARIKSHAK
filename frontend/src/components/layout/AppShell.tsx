@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  Activity, BarChart3, Boxes, ClipboardList, Download, FileText, HelpCircle, LayoutGrid, LineChart as LineIcon, RefreshCw, Sliders, Upload,
+  Activity, BarChart3, Boxes, ClipboardList, Download, FileText, HelpCircle, LayoutGrid, LineChart as LineIcon, PanelLeftClose, PanelLeftOpen,
+  RefreshCw, Sliders, Upload,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
@@ -112,8 +113,24 @@ const SystemBlock: React.FC = () => {
   );
 };
 
-const Header: React.FC = () => {
-  const { lots, activeLot, setActiveLot, parts, predictions } = useStore();
+const SIDEBAR_KEY = 'parikshak.sidebarCollapsed';
+
+const CompactSystem: React.FC = () => {
+  const { mode, setDevModalOpen, setShortcutModalOpen } = useStore();
+  const [health, setHealth] = useState<boolean | null>(null);
+  useEffect(() => { if (mode !== 'offline') getHealth().then(setHealth); }, [mode]);
+  const label = mode === 'offline' ? 'offline demo (in-browser)' : health ? 'API connected' : health === false ? 'API unreachable' : 'checking API…';
+  return (
+    <div className="mt-auto pb-4 flex flex-col items-center gap-3 text-[#C9D3E3]">
+      <span title={label} aria-label={label} className={`w-2.5 h-2.5 rounded-full ${mode === 'offline' ? 'bg-[#F5A524]' : health ? 'bg-[#34D399]' : health === false ? 'bg-[#F87171]' : 'bg-[#8FA3C2]'}`} />
+      <button onClick={() => setDevModalOpen(true)} title="Data source" aria-label="Data source" className="p-1.5 rounded-md hover:text-white hover:bg-navy-deep"><Sliders size={16} /></button>
+      <button onClick={() => setShortcutModalOpen(true)} title="Keyboard shortcuts" aria-label="Keyboard shortcuts" className="p-1.5 rounded-md hover:text-white hover:bg-navy-deep"><HelpCircle size={16} /></button>
+    </div>
+  );
+};
+
+const Header: React.FC<{ collapsed: boolean }> = ({ collapsed }) => {
+  const { lots, activeLot, setActiveLot, parts, predictions, mode, judgeSource } = useStore();
   const location = useLocation();
   const key = location.pathname.split('/')[1] ?? '';
   const t = TITLES[key] ?? TITLES[''];
@@ -149,6 +166,7 @@ const Header: React.FC = () => {
           <span>Temperature <strong className="text-white">{activeLot.temperatureC == null ? 'n/a' : `${activeLot.temperatureC} °C`}</strong>{assumed('temperature_c')}</span>
           <span>Parameters used <strong className="text-white" data-testid="parameters-used">{used.map(p => PARAM_LABEL[p as Param] ?? p).join(', ')}</strong></span>
           {activeLot.supplier && <span>Supplier <strong className="text-white">{activeLot.supplier}</strong></span>}
+          {collapsed && <span>Data source <strong className="text-white" data-testid="data-source-tag">{sourceTag(activeLot, mode) + (location.pathname.startsWith('/model') && judgeSource ? ` · judge mode: ${judgeSource}` : '')}</strong></span>}
         </div>
       )}
       <p className="sr-only">{t.sub}</p>
@@ -158,6 +176,13 @@ const Header: React.FC = () => {
 
 export const AppShell: React.FC = () => {
   const { fetchInitialData, isLoading, error, mode, setDevModalOpen } = useStore();
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return globalThis.localStorage?.getItem(SIDEBAR_KEY) === '1'; } catch { return false; }
+  });
+  const toggle = () => setCollapsed(c => {
+    try { globalThis.localStorage?.setItem(SIDEBAR_KEY, c ? '0' : '1'); } catch { /* no storage */ }
+    return !c;
+  });
   useKeyboardShortcuts();
   useEffect(() => { fetchInitialData(); }, [fetchInitialData]);
   const location = useLocation();
@@ -165,25 +190,36 @@ export const AppShell: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex bg-pagebg text-main overflow-hidden">
-      <aside className="w-[248px] shrink-0 bg-navy flex flex-col" aria-label="Main navigation">
-        <div className="px-5 pt-6 pb-4">
-          <div className="text-white text-[26px] font-bold tracking-wide leading-none">PARIKSHAK</div>
-          <div className="text-[11px] font-semibold tracking-widest text-[#8FA3C2] mt-1.5 uppercase">Burn-in anomaly screening</div>
+      <aside className={`${collapsed ? 'w-[68px]' : 'w-[248px]'} shrink-0 bg-navy flex flex-col transition-[width] duration-150`} aria-label="Main navigation" data-collapsed={collapsed}>
+        <div className={`${collapsed ? 'px-2' : 'px-5'} pt-5 pb-4`}>
+          <div className={`flex items-start ${collapsed ? 'justify-center' : 'justify-between'} gap-2`}>
+            {!collapsed && (
+              <div>
+                <div className="text-white text-[26px] font-bold tracking-wide leading-none">PARIKSHAK</div>
+                <div className="text-[11px] font-semibold tracking-widest text-[#8FA3C2] mt-1.5 uppercase">Burn-in anomaly screening</div>
+              </div>
+            )}
+            <button onClick={toggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed} data-testid="sidebar-toggle"
+              className="p-1.5 rounded-md text-[#C9D3E3] hover:text-white hover:bg-navy-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan">
+              {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
+          </div>
           <div className="h-px bg-[#2A4772] mt-4" />
         </div>
-        <nav className="px-3 space-y-1.5">
+        <nav className={`${collapsed ? 'px-2' : 'px-3'} space-y-1.5`}>
           {NAV.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end}
-              className={({ isActive }) => `flex items-center gap-3 rounded-lg pl-3 pr-2 py-2.5 text-[15px] font-medium border-l-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan ${
+            <NavLink key={to} to={to} end={end} title={collapsed ? label : undefined} aria-label={label}
+              className={({ isActive }) => `flex items-center gap-3 rounded-lg ${collapsed ? 'justify-center px-0' : 'pl-3 pr-2'} py-2.5 text-[15px] font-medium border-l-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan ${
                 isActive || (to === '/part' && location.pathname.startsWith('/part')) ? 'bg-navy-deep text-white border-cyan' : 'bg-navy-deep/60 text-[#C9D3E3] border-transparent hover:text-white'}`}>
-              <Icon size={17} /> {label}
+              <Icon size={17} className="shrink-0" /> {!collapsed && label}
             </NavLink>
           ))}
         </nav>
-        <SystemBlock />
+        {collapsed ? <CompactSystem /> : <SystemBlock />}
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header />
+        <Header collapsed={collapsed} />
         {mode === 'offline' && (
           <div className="bg-review-bg text-review text-sm px-8 py-1.5 border-b border-review/20">
             Offline demo: synthetic data screened by simple client rules on 0h/24h readings (not the ML model).{' '}
