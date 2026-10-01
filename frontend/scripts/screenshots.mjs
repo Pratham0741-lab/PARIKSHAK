@@ -1,4 +1,4 @@
-// Visits all 9 screens (then runs the judge-mode predict + score flow on examples/judge/) in headless Chromium against a running stack, saves a screenshot of each to
+// Visits all 9 screens, checks the data-source tag on each and the Recompute button, (then runs the judge-mode predict + score flow on examples/judge/) in headless Chromium against a running stack, saves a screenshot of each to
 // reports/screenshots/, and reports errors, empty states and stale values (page numbers compared
 // with a fresh API read). Exit code 1 if any screen shows an error, a console error, a failed
 // request or a stale value.
@@ -23,6 +23,11 @@ const lots = await api('/lots');
 const firstLot = lots[0];
 const metrics = await api('/metrics/benchmark');
 const judgeModel = (await api('/judge/model')).model;
+// T7: the permanent data-source tag expected for the active (first) lot, from its stored provenance.
+const sd = firstLot.source_detail ?? {};
+const expectedTag = sd.kind === 'SYNTHETIC' ? `SYNTHETIC seed=${sd.seed} generator=${sd.generator}`
+  : sd.kind === 'UPLOADED' ? (sd.file && sd.file !== '(pasted CSV)' ? `UPLOADED: ${sd.file}` : 'MANUAL ENTRY')
+  : firstLot.source === 'SYNTHETIC' ? 'SYNTHETIC (seed/generator not recorded: seeded before provenance tracking)' : 'UNKNOWN';
 
 // Values each screen must show, computed from a fresh API read at the time of the check.
 const expected = {
@@ -35,6 +40,7 @@ const expected = {
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const results = [];
+let recomputeNote = '';
 for (const screen of SCREENS) {
   const consoleErrors = [];
   const failed = [];
@@ -49,6 +55,16 @@ for (const screen of SCREENS) {
   const loading = /Loading/.test(text);
   const empty = EMPTY_MARKERS.filter(m => text.includes(m));
   const stale = (expected[screen] ?? []).filter(v => !text.includes(v));
+  const tag = (await page.locator('[data-testid="data-source-tag"]').innerText().catch(() => '')).trim();
+  if (screen === 'judge' ? !tag.startsWith('UPLOADED') && !tag.startsWith('JUDGE MODE') : tag !== expectedTag) {
+    stale.push(`data-source tag "${tag}" (expected "${screen === 'judge' ? 'UPLOADED: <judge file>' : expectedTag}")`);
+  }
+  if (screen === 'model') {  // T7 debug: recompute visible metrics from raw rows; all must match
+    await page.getByRole('button', { name: 'Recompute' }).click();
+    const res = await page.locator('[data-testid="recompute-result"]').innerText({ timeout: 30000 });
+    if (!/^all \d+ visible values match raw data$/.test(res)) stale.push(`recompute: ${res}`);
+    else recomputeNote = res;
+  }
   await page.screenshot({ path: `${OUT}/${screen}.png`, fullPage: true });
   page.off('console', onConsole);
   page.off('response', onResponse);
@@ -121,4 +137,5 @@ for (const r of results) {
   if (r.empty.length) notes.push(`empty-state text: ${r.empty.join(', ')}`);
   console.log(`${r.screen.padEnd(11)} ${notes.length ? notes.join('; ') : 'OK'}  -> reports/screenshots/${r.screen}.png`);
 }
+console.log(`data-source tag on every screen: "${expectedTag}" (judge: its own files); recompute on Model screen: ${recomputeNote || 'not run'}`);
 process.exit(bad ? 1 : 0);

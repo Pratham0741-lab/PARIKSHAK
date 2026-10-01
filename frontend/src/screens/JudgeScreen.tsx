@@ -32,13 +32,14 @@ const FilePick: React.FC<{ label: string; disabled?: boolean; onFile: (text: str
 
 const MetricsBlock: React.FC<{ m: JudgeMetrics }> = ({ m }) => {
   const d = m.detection, c = m.confusion_matrix;
+  const target = useStore(s => s.config?.intervalCoverageTarget);
   const flagAll = m.trivial_policies.flag_all_parts.weighted_cost;
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-4 gap-2">
         {[['Recall', pct(d.recall)], ['Precision', pct(d.precision)], ['F2', pct(d.f2)],
           [`MAE (${m.primary_parameter})`, num(m.regression.mae)], ['RMSE', num(m.regression.rmse)],
-          ['90% PI coverage', pct(m.interval.coverage)],
+          [`${target != null ? pct(target) : 'n/a'} PI coverage (target)`, pct(m.interval.coverage)],
           [`Cost (FN×${d.cost_config.fn_cost} + FP×${d.cost_config.fp_cost})`, d.weighted_cost.toFixed(0)],
           ['Flag-everything cost', flagAll.toFixed(0)]].map(([k, v]) => (
           <div key={k} className="border border-hairline bg-workspace p-2"><div className="text-muted text-[10px]">{k}</div><div className="text-main font-bold text-sm">{v}</div></div>
@@ -60,7 +61,7 @@ const MetricsBlock: React.FC<{ m: JudgeMetrics }> = ({ m }) => {
 };
 
 export const JudgeScreen: React.FC = () => {
-  const { mode } = useStore();
+  const { mode, setJudgeSource } = useStore();
   const [model, setModel] = useState<JudgeModelInfo | null>(null);
   const [rule, setRule] = useState<{ id: string; text: string } | null>(null);
   const [job, setJob] = useState<string | null>(null);
@@ -69,6 +70,11 @@ export const JudgeScreen: React.FC = () => {
   const [open, setOpen] = useState<JudgeRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const offline = mode === 'offline';
+
+  useEffect(() => {
+    const parts = [model ? `UPLOADED: ${model.file} (training)` : null, pred ? `UPLOADED: ${pred.input.file} (prediction)` : null];
+    setJudgeSource(parts.filter(Boolean).join(' · ') || null);
+  }, [model, pred, setJudgeSource]);
 
   const refresh = async () => {
     const r = await judgeApi.model();

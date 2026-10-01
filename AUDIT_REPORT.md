@@ -265,3 +265,114 @@ EX-LATENT-001 (0h 30.0, 24h 36.0 uA; lot median 10.13 uA; below 50 uA at every i
 | `git clone . /tmp/clean && cd /tmp/clean/frontend && npm ci && npx tsc --noEmit && npm run build` | success |
 | `docker build frontend` (clean clone) / `docker build -f backend/Dockerfile .` + import check | built (74 MB) / imports OK after adding libgomp1 |
 | grep for `0.983`, `38.2`, `U-0342`, `ISR-24`, `4.79`, `80.21`, `0.8212`, `Next.js`, `Redis 7` (excluding node_modules, this report) | only `0.983` in reports/evaluation_results.json (a computed TRAIN coverage value) |
+
+
+---
+
+# T1–T7 follow-up (branch `feat/judge-mode`, on top of master `47b9c77`)
+
+Every number below was produced by the code at the cited lines; none is typed into the UI.
+
+## T1: One-command stack, smoke test, browser check
+- `docker compose down -v && docker compose up --build` comes up from a clean checkout. Re-run after T7 with UP_EXIT=0.
+  - Startup order is postgres → one-shot `burnin_init` (migrate, seed, out-of-fold screening) → backend → frontend: `docker-compose.yml:38`, `docker-compose.yml:70`.
+  - The model artifact lives on a named volume: `docker-compose.yml:101`.
+  - nginx also listens on IPv6 (it previously failed its healthcheck on Alpine): `frontend/nginx.conf:3`.
+- `scripts/smoke_test.sh` → `scripts/smoke_test.py:99` covers health, lots, ingest, parts, predictions, explanations and decisions, the injection and perturbation scenarios, and restart persistence (`--restart`). Final run on the clean 40-lot physics stack: **SMOKE TEST PASSED**.
+  - Injection: LATENT-001 at 30 µA in a lot with median 10.05 µA, never above the 50 µA limit. Module A 32.45 ≥ 1.26; Module B drift z 102.56 ≥ k 2.00; verdict REJECT.
+  - Perturbation: changing one 24h value moved the forecast from 10.453 to 50.472 µA and changed the explanation.
+  - Persistence: the ingested lot, prediction, decision and explanations all survive `docker compose restart`.
+- `frontend/scripts/screenshots.mjs` checks every screen against a fresh API read: error banners, console errors, failed requests, stale values, the data-source tag, and the Recompute result.
+  - Final run: lots, ingest, outliers, drift, components, decisions, model, reports and judge, plus the judge-flow and ingest-flow interaction checks, are all **OK**. Screenshots are in `reports/screenshots/*.png`.
+  - Earlier problems found and fixed in T1: "µA" rendered as "MA" (CSS uppercase), truncated Drift part IDs, and a stale lot status of INGESTED.
+
+## T2: Merge
+- `fix/audit-remediation` was merged into master as `47b9c77` (no force-push). Nothing needed a manual decision.
+- T3–T7 are on `feat/judge-mode` and are **not** merged into master.
+- Local master is 22 commits ahead of `origin/master`. Nothing has been pushed.
+
+## T3: Test conditions as data
+- `temperature_c`, `test_parameter`, `unit`, `static_limit`, `conditions_assumed` and `source_detail` are stored on the lot: `backend/app/models/lot.py:62`.
+- Defaults are flagged "assumed": `ml_engine/conditions.py`.
+- Arrhenius factor: `ml_engine/conditions.py:39`.
+- Module B's lot-level feature comes from lot metadata only: `ml_engine/features.py:125`.
+- Conditions are shown in the lot header and in the audit report: `frontend/src/screens/LotOverviewScreen.tsx:7`, `frontend/src/screens/AuditReportScreen.tsx:5`.
+
+## T4: Physics generator
+- `data_engine/physics_generator.py:60`:
+  - log-normal lot baselines with Arrhenius temperature dependence;
+  - power-law drift, with the exponent range and citation comment at `:16`;
+  - heteroscedastic noise (`:23`);
+  - latent parts that pass the static limit at every time point (`:158`), with 24h signal mix clear / partial / none = 0.40 / 0.25 / 0.35 (`:57`).
+- The legacy generator stays selectable with `--generator legacy`.
+- The report uses lot-grouped CV for both generators, and states that **the generator change alters every number**: `evaluation/run.py:209`.
+- Threshold variance across folds: `evaluation/run.py:161`.
+
+Final held-out numbers (`SIH26170_EVALUATION_REPORT.md`, reproduced live on the Model screen of the clean stack):
+
+| Held-out | Physics (primary, 40 lots / 4000 parts) | Legacy (10 lots / 1000 parts) |
+|---|---:|---:|
+| Recall / precision / F2 | 86.4% / 15.6% / 45.4% | 78.1% / 20.1% / 49.5% |
+| Weighted cost (FN×20+FP×1) vs flag-everything | 3099 vs 3580 | 718 vs 904 |
+| Leakage 168h MAE / RMSE (linear baseline MAE) | 1.906 / 6.10 (3.68) | 1.930 / 5.11 (5.97) |
+| 90% interval coverage | 90.4% | 89.0% |
+| LATE_DRIFT catch rate | 59.7% | 37.5% |
+| Threshold A / k across folds | 1.287±0.031 / 1.994±0.653 | 2.155±0.467 / 5.530±2.758 |
+
+Honest reading:
+- On physics data, latent parts with **no** 24h signal are flagged at 59.0%. NORMAL parts are flagged at 54.7%, so for these parts the model is barely better than chance.
+- The detections come from parts that carry signal by 24h: clear 88.8%, partial 82.9%.
+- The model beats flag-everything by only 13% in cost.
+
+## T5: Judge mode
+- Train: `POST /api/v1/judge/train` (`backend/app/api/v1/judge.py:104`) → `ml_engine/judge.py:158`.
+  - Runs as a background job, needs no labels, and persists the model with the data sha256.
+  - Labels, if present, are used only to choose thresholds on out-of-fold (OOF) predictions.
+  - Files with fewer than 3 lots get a within-file split labelled "single-lot, less reliable" (`ml_engine/judge.py:39`).
+- Labels-free rule LFR-1 (`evaluation/rules.py:17`): static limit, lot-relative drift ln(v168/v24), or a 168h outlier, using the fixed Iglewicz–Hoaglin cut-off 3.5. The rule text is shown in the UI and is never used at inference.
+  - Agreement with the physics generator's hidden labels (40 lots): it catches 251/251 drift defects and 79/88 level outliers, with 13/3580 false positives on NORMAL parts.
+  - It misses most SUBTLE_MULTIVARIATE parts (19/81 caught), as expected for a single-parameter rule.
+- Predict: `POST /judge/predict` (`judge.py:155`) uses only 0h/24h; 96h, 168h and label columns are dropped before the model.
+  - Export columns: `ml_engine/judge.py:38`.
+- Score: `POST /judge/score` (`judge.py:194`) and `python -m evaluation.score --predictions preds.csv --truth truth.csv` both call `evaluation/score.py:168` on the same bytes.
+  - Identity is asserted in `tests/test_judge.py:124` and in the browser judge-flow check.
+- UI: "Trained on <file>, <n> parts, <k> lots" (`frontend/src/screens/JudgeScreen.tsx:128`), the rule, predictions with explanations, and a score panel with MAE, recall, cost and the confusion matrix.
+
+Example run (`examples/judge/`, physics seed 7: train on 12 lots without labels, test on 4 other lots):
+
+| | OOF on training file | Unseen test lots vs generator labels |
+|---|---:|---:|
+| Recall / precision | 94.3% / 9.4% | 92.3% / 12.3% |
+| Cost vs flag-everything | **888 vs 873** | **317 vs 281** |
+| Leakage MAE / 90% PI coverage | 3.08 / 91.1% | 2.72 / 89.7% |
+
+On these files judge mode does **not** beat flagging every part. At 20:1 cost, with about 12 training lots and no labels, the selected thresholds flag about 90% of parts. The UI prints a warning whenever the model's cost is not below flag-everything.
+
+## T6: Robust ingest
+- One reader for ingest, judge mode and scoring: `data_engine/tabular.py`.
+  - Header interpretation (`:167`) and parameter matching including fuzzy (`:148`): `Iddq_0h`, `I_0`, `T0`, `leakage (nA) @ 24 h`, misspellings.
+  - Unit conversion table: `:47`. A converted or implausible unit requires confirmation (`:485`), enforced at `backend/app/api/v1/ingest.py:55` and by the UI checkbox (`DataIngestScreen.tsx:133`).
+  - Wide, long and tidy layouts; delimiter sniffing; missing 96h; blank, non-numeric and negative cells become NaN, never 0. Ingest then imputes the lot median for display only and sends the part to REVIEW.
+  - Duplicate IDs are rejected with the first line cited. Issues carry file lines, and clicking one shows that line (`DataIngestScreen.tsx:174`).
+  - Streamed parse: `_HashingReader` at `:233`. Raw-body `POST /ingest/stream` at `ingest.py:142`, with bulk inserts.
+- Tests: `tests/test_robust_ingest.py` (18 tests). They include a streamed ingest of 10,000 parts in nA, with a 409 until the units are confirmed and values stored in µA (`:149`).
+- Example of every case in one file: `examples/ingest_messy.csv`.
+- Decision: the production model needs all three parameters, so ingest rejects a file that lacks one and points to Judge mode, which trains on whatever parameters the file has.
+
+## T7: Provenance tag, recompute, hardcode sweep
+- A permanent tag on every screen (`frontend/src/components/layout/DataSourceBar.tsx:16`, mounted at `WorkspaceLayout.tsx:23`) shows one of:
+  - `UPLOADED: <file>` (sha256 in the tooltip);
+  - `SYNTHETIC seed=<n> generator=<name>`;
+  - `MANUAL ENTRY`;
+  - on the Judge screen, its own uploaded files.
+- Lots seeded before T3 have no recorded provenance and are tagged as such rather than given a guessed seed.
+- The debug "Recompute" button calls `backend/app/api/v1/debug.py:22`, which recomputes from raw SQL rows in plain Python and compares against every visible metric and lot count. Final run: "all 136 visible values match raw data".
+  - Test: `tests/test_debug_recompute.py:19`.
+- Hardcode sweep: the only display literal found was the Judge screen's "90% PI coverage" label. It now reads the coverage target from `/config` (`JudgeScreen.tsx:42`). The remaining numeric literals are chart geometry.
+
+## Still open after T1–T7
+- Judge mode on small unlabelled files is not cost-effective at 20:1 (see T5); this needs more lots or labels.
+- Latent parts with no 24h signal are near chance on physics data. No 0h/24h method can catch them by construction.
+- Ingest stores a multi-lot file as one lot (with a warning); lot-relative statistics then mix lots.
+- The user's local `.env` still has `DEFAULT_NUM_LOTS=10`. I did not touch it. Docker uses the compose environment, so the stack seeds 40 lots.
+- `design/reference.pdf` is untracked and was left uncommitted.
