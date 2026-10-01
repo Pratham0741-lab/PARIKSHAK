@@ -3,8 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { OverviewScreen } from './screens/OverviewScreen';
 import { LotAnalysisScreen } from './screens/LotAnalysisScreen';
-import { ComponentDetailScreen } from './screens/ComponentDetailScreen';
-import { DecisionQueueScreen } from './screens/DecisionQueueScreen';
+import { PartDetailScreen } from './screens/PartDetailScreen';
+import { ReviewQueueScreen } from './screens/ReviewQueueScreen';
 import { ModelPerformanceScreen } from './screens/ModelPerformanceScreen';
 import { DataIngestScreen } from './screens/DataIngestScreen';
 import { AuditReportScreen } from './screens/AuditReportScreen';
@@ -16,9 +16,9 @@ export const App: React.FC = () => (
       <Route path="/" element={<AppShell />}>
         <Route index element={<OverviewScreen />} />
         <Route path="lot" element={<LotAnalysisScreen />} />
-        <Route path="part" element={<ComponentDetailScreen />} />
-        <Route path="part/:id" element={<ComponentDetailScreen />} />
-        <Route path="review" element={<DecisionQueueScreen />} />
+        <Route path="part" element={<PartDetailScreen />} />
+        <Route path="part/:id" element={<PartDetailScreen />} />
+        <Route path="review" element={<ReviewQueueScreen />} />
         <Route path="trends" element={<OutlierDetectionScreen />} />
         <Route path="model" element={<ModelPerformanceScreen />} />
         <Route path="ingest" element={<DataIngestScreen />} />
