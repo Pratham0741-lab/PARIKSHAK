@@ -50,19 +50,19 @@ class BurnInReading(Base):
         nullable=False,
         doc="Burn-in test interval milestone in hours (typically 0, 24, 96, 168)",
     )
-    leakage_current_ua: Mapped[float] = mapped_column(
+    leakage_current_ua: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Subthreshold / gate leakage current measured in microamperes (uA)",
     )
-    iddq_ma: Mapped[float] = mapped_column(
+    iddq_ma: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Quiescent supply current measured in milliamperes (mA)",
     )
-    propagation_delay_ns: Mapped[float] = mapped_column(
+    propagation_delay_ns: Mapped[Optional[float]] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
         doc="Critical path propagation delay measured in nanoseconds (ns)",
     )
     imputed_fields: Mapped[Optional[List[str]]] = mapped_column(

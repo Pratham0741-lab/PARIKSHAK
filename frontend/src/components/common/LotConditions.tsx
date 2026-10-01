@@ -15,6 +15,9 @@ export const LotConditions: React.FC<{ lot: Lot | null; className?: string }> = 
       <span>Temperature: <strong className="text-main font-mono">{lot.temperatureC == null ? 'unknown' : `${lot.temperatureC} °C`}</strong>{tag('temperature_c')}</span>
       <span>Parameter: <strong className="text-main font-mono">{lot.testParameter ? LABEL[lot.testParameter] ?? lot.testParameter : '–'}</strong>{tag('test_parameter')}</span>
       <span>Unit: <strong className="text-main font-mono">{lot.unit ?? '–'}</strong>{tag('unit')}</span>
+      <span>Parameters used: <strong className="text-main font-mono" data-testid="parameters-used">{
+        ((lot.sourceDetail?.parameters_used as string[] | undefined) ?? ['leakage_current_ua', 'iddq_ma', 'propagation_delay_ns'])
+          .map(p => LABEL[p] ?? p).join(', ')}</strong></span>
       <span>Static limit: <strong className="text-main font-mono">{lot.staticLimit ?? '–'}</strong>{tag('static_limit')}</span>
     </span>
   );

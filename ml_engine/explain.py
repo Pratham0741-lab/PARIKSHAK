@@ -122,7 +122,8 @@ def build_explanation(pred: Dict[str, Any], readings: List[Dict[str, Any]], seri
     b_top = max(b_real, key=lambda c: abs(c["value"])) if b_real else None
 
     # ---------------- static limit
-    observed = {p: max((r[p] for r in readings if r["interval_hours"] in (0, 24)), default=None) for p in PARAMETERS}
+    observed = {p: max((r[p] for r in readings if r["interval_hours"] in (0, 24) and r.get(p) is not None), default=None)
+                for p in PARAMETERS}
     observed_breach = {p: (observed[p] is not None and observed[p] > limits[p]) for p in PARAMETERS}
     forecast_breach = {p: (pred.get(PRED_FIELD[p]) is not None and pred[PRED_FIELD[p]] >= limits[p]) for p in PARAMETERS}
 

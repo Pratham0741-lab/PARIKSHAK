@@ -109,11 +109,10 @@ def test_missing_96h_blank_cells_duplicates_and_non_numeric_with_row_links():
     assert all(v != 0 for p in res.parts for h in p.values for v in p.values[h].values())
 
 
-def test_file_without_all_three_parameters_is_rejected_by_ingest_with_advice():
-    res = parse_csv("part,I_0,I_24\nA,12,12.5\n")
-    assert not res.ok and set(res.missing_columns) == {"iddq_ma_0h", "iddq_ma_24h", "propagation_delay_ns_0h",
-                                                        "propagation_delay_ns_24h"}
-    assert "Judge mode" in res.issues[0].message
+def test_single_parameter_file_is_accepted_and_reports_parameters_used():
+    res = parse_csv("part,I_0,I_24\nA,12,12.5\nB,11,11.4\n")
+    assert res.ok and res.parameters_used == ["leakage_current_ua"]
+    assert all(p.values[0]["iddq_ma"] is None and not p.insufficient_data for p in res.parts)  # absent, not imputed
 
 
 def _big_csv(n: int, seed: int = 0) -> str:
@@ -173,4 +172,47 @@ async def test_stream_endpoint_ingests_10k_parts_and_requires_unit_confirmation(
         with SessionLocal() as s:
             s.execute(delete(AuditEvent).where(AuditEvent.lot_id == lot_id))
             s.execute(delete(Lot).where(Lot.id == lot_id))
+            s.commit()
+
+
+def _single_param_csv(params, n=40, seed=5):
+    """A ~nominal lot with only `params` at 0/24/96/168h, plus one latent part (30 uA-type excursion)."""
+    rng = np.random.default_rng(seed)
+    base = {"leakage_current_ua": 10.0, "iddq_ma": 1.5, "propagation_delay_ns": 4.2}
+    header = ["part_id"] + [f"{p}_{h}h" for h in (0, 24, 96, 168) for p in params]
+    rows = [",".join(header)]
+    for i in range(n):
+        v0 = {p: base[p] * float(rng.lognormal(0, 0.05)) for p in params}
+        rows.append(",".join([f"SP{i:03d}"] + [f"{v0[p] * (1 + 0.002 * h / 24):.4f}" for h in (0, 24, 96, 168) for p in params]))
+    rows.append(",".join(["LATENT-001"] + [f"{3 * base[p] * (1 + 0.2 * h / 24):.4f}" for h in (0, 24, 96, 168) for p in params]))
+    return "\n".join(rows)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params", [("leakage_current_ua",), ("iddq_ma",), ("propagation_delay_ns",), P])
+async def test_single_parameter_ingest_screens_with_absent_parameters_dropped(client, params):
+    lot_number = f"TEST-SP-{uuid.uuid4().hex[:8]}"
+    r = await client.post("/api/v1/ingest", json={"csv": _single_param_csv(params), "lot_number": lot_number})
+    assert r.status_code == 201, r.text[:500]
+    body = r.json()
+    lot_id = body["lot_id"]
+    try:
+        assert body["validation"]["parameters_used"] == list(params)
+        assert body["screening"]["n_screened"] == 41
+        lot = next(lt for lt in (await client.get("/api/v1/lots")).json() if lt["id"] == lot_id)
+        assert lot["source_detail"]["parameters_used"] == list(params)
+        comps = (await client.get("/api/v1/components", params={"lot_id": lot_id, "page_size": 100})).json()["items"]
+        latent = next(c for c in comps if c["serial_number"] == "LATENT-001")
+        prof = (await client.get(f"/api/v1/components/{latent['id']}/profile")).json()
+        pred = prof["prediction"]
+        short = {"leakage_current_ua": "leakage", "iddq_ma": "iddq", "propagation_delay_ns": "delay"}
+        for p in P:  # absent parameters: no forecast (never a number made up from missing inputs)
+            assert (pred[f"pred_{short[p]}_168h"] is None) == (p not in params)
+        assert pred["verdict"] in ("REVIEW", "REJECT")  # 3x the lot level on the present parameter(s)
+        ex = await client.get(f"/api/v1/components/{latent['id']}/explain")
+        assert ex.status_code == 200
+    finally:
+        with SessionLocal() as s:
+            s.execute(delete(AuditEvent).where(AuditEvent.lot_id == uuid.UUID(lot_id)))
+            s.execute(delete(Lot).where(Lot.id == uuid.UUID(lot_id)))
             s.commit()

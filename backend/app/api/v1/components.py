@@ -189,9 +189,9 @@ async def get_component_profile(
     readings_items = [
         ReadingItem(
             interval_hours=r.interval_hours,
-            leakage_current_ua=round(r.leakage_current_ua, 4),
-            iddq_ma=round(r.iddq_ma, 4),
-            propagation_delay_ns=round(r.propagation_delay_ns, 4),
+            leakage_current_ua=None if r.leakage_current_ua is None else round(r.leakage_current_ua, 4),
+            iddq_ma=None if r.iddq_ma is None else round(r.iddq_ma, 4),
+            propagation_delay_ns=None if r.propagation_delay_ns is None else round(r.propagation_delay_ns, 4),
             imputed_fields=r.imputed_fields,
             recorded_at=r.recorded_at,
         )

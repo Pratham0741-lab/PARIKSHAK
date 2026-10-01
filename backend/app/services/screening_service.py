@@ -44,12 +44,12 @@ def prediction_record(row: pd.Series, run_id=None, cv_fold: Optional[int] = None
     return {
         "component_id": uuid.UUID(str(row["component_id"])),
         "module_a_score": float(row["module_a_score"]),
-        "module_a_mahalanobis": float(row["module_a_mahalanobis"]),
+        "module_a_mahalanobis": _finite(row["module_a_mahalanobis"]),
         "module_a_flag": bool(row["module_a_flag"]),
-        "pred_leakage_168h": float(row["pred_leakage_168h"]),
-        "pred_iddq_168h": float(row["pred_iddq_168h"]),
-        "pred_delay_168h": float(row["pred_delay_168h"]),
-        "drift_slope_ua_per_hr": float(row["drift_slope_ua_per_hr"]),
+        "pred_leakage_168h": _finite(row["pred_leakage_168h"]),
+        "pred_iddq_168h": _finite(row["pred_iddq_168h"]),
+        "pred_delay_168h": _finite(row["pred_delay_168h"]),
+        "drift_slope_ua_per_hr": _finite(row["drift_slope_ua_per_hr"]),
         "module_b_flag": bool(row["module_b_flag"]),
         "module_b_score": _finite(row["module_b_score"]),
         "threshold_a": _finite(row["threshold_a"]),
@@ -95,6 +95,37 @@ def load_model(path: Path | None = None) -> ScreeningModel:
     return ScreeningModel.load(path)
 
 
+def subset_artifact_path(params) -> Path:
+    base = artifact_path()
+    return base.with_name(f"{base.stem}__{'+'.join(params)}{base.suffix}")
+
+
+def model_for_parameters(params) -> ScreeningModel:
+    """The production model if all parameters are present; otherwise the SAME pipeline (ScreeningModel, same
+    settings) fitted on the labelled training lots with the absent parameters dropped. Cached next to the
+    production artifact and deleted whenever the production model is retrained."""
+    params = [p for p in PARAMETERS if p in set(params)]
+    if not params:
+        raise ValueError("no parameters to screen")
+    if len(params) == len(PARAMETERS):
+        return load_model()
+    path = subset_artifact_path(params)
+    if path.exists():
+        return ScreeningModel.load(path)
+    load_model()  # the subset model must not exist without a production model
+    from backend.app.core.config import settings
+    from backend.app.core.database import SessionLocal
+    from evaluation.cost import CostConfig
+    from ml_engine.run_screening import fetch_screening_data
+
+    with SessionLocal() as s:
+        df = fetch_screening_data(s)
+    df = df.drop(columns=[p for p in PARAMETERS if p not in params])
+    model = ScreeningModel(cost=CostConfig.from_settings(), random_state=settings.SYNTHETIC_RANDOM_SEED).fit(df)
+    model.save(path)
+    return model
+
+
 def screen_lot(session: Session, lot_id: uuid.UUID, model: Optional[ScreeningModel] = None) -> Dict[str, Any]:
     """Screens one lot with the persisted production model (thresholds, calibration and floors included)."""
     model = model or load_model()
@@ -111,6 +142,10 @@ def screen_lot(session: Session, lot_id: uuid.UUID, model: Optional[ScreeningMod
             .where(BurnInReading.component_id.in_(ok_ids), BurnInReading.interval_hours.in_([0, 24]))
         ).all()
         df = pd.DataFrame([r._asdict() for r in rows])
+        absent = [p for p in PARAMETERS if df[p].isna().all()]
+        df = df.drop(columns=absent)  # absent parameters are dropped, never filled
+        if absent and model is not None and getattr(model.module_a, "params_", None) != [p for p in PARAMETERS if p not in absent]:
+            model = model_for_parameters([p for p in PARAMETERS if p not in absent])
         df["component_id"] = df["component_id"].astype(str)
         df["lot_id"] = str(lot_id)
         lot = session.get(Lot, lot_id)

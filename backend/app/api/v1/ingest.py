@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from backend.app.core.database import SessionLocal
 from backend.app.models import BurnInReading, Component, Lot, LotStatus
 from backend.app.services.ingest import PARAMETERS, parse_csv
-from backend.app.services.screening_service import audit, load_model, screen_lot
+from backend.app.services.screening_service import audit, model_for_parameters, screen_lot
 from data_engine.tabular import TO_CANONICAL
 from ml_engine.conditions import resolve_conditions
 from ml_engine.verdict_engine import ScreeningVerdictEngine
@@ -71,7 +71,7 @@ def _ingest_sync(req: IngestRequest, parsed=None) -> IngestResponse:
     if supplied.get("unit") and "unit" in assumed:
         assumed.remove("unit")
     source_units = {q: sorted(u["detected"]) for q, u in parsed.units.items()}
-    model = load_model()  # fail before writing anything if there is no trained model
+    model = model_for_parameters(parsed.parameters_used)  # fail before writing anything if there is no model
     limits = ScreeningVerdictEngine.datasheet_limits()
     lot_number = req.lot_number or f"INGEST-{datetime.now(UTC):%Y%m%d-%H%M%S}"
 
@@ -82,7 +82,8 @@ def _ingest_sync(req: IngestRequest, parsed=None) -> IngestResponse:
                   **conditions, conditions_assumed=assumed,
                   source_detail={"kind": "UPLOADED", "file": req.filename or "(pasted CSV)",
                                  "sha256": parsed.sha256, "rows": parsed.rows_total, "layout": parsed.layout,
-                                 "units_in_file": source_units, "units_confirmed": req.units_confirmed})
+                                 "units_in_file": source_units, "units_confirmed": req.units_confirmed,
+                                 "parameters_used": parsed.parameters_used})
         session.add(lot)
         session.flush()
 
@@ -97,7 +98,7 @@ def _ingest_sync(req: IngestRequest, parsed=None) -> IngestResponse:
                           "ground_truth_flag": None, "is_datasheet_breached": observed_breach,
                           "insufficient_data": pp.insufficient_data})
             for h, vals in pp.values.items():
-                if any(vals[q] is None for q in PARAMETERS):
+                if all(vals[q] is None for q in PARAMETERS) or any(vals[q] is None for q in parsed.parameters_used):
                     continue  # whole optional interval absent
                 readings.append({"id": uuid.uuid4(), "component_id": cid, "interval_hours": h,
                                  **{q: vals[q] for q in PARAMETERS},

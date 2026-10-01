@@ -160,6 +160,8 @@ def run_pipeline(
         final = factory().fit(df)
         artifact = artifact_path()
         final.save(artifact)
+        for stale in artifact.parent.glob(f"{artifact.stem}__*"):  # parameter-subset models
+            stale.unlink()
         console.print(f"Saved model + thresholds to {artifact} "
                       f"(A={final.thresholds_['threshold_a']:.4f}, B={final.thresholds_['threshold_b']:.4f})")
 

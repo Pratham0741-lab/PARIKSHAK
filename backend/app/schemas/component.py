@@ -18,9 +18,9 @@ class ReadingItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     interval_hours: int = Field(..., description="Burn-in test interval (0, 24, 96, 168)")
-    leakage_current_ua: float = Field(..., description="Measured leakage in uA")
-    iddq_ma: float = Field(..., description="Measured IDDQ in mA")
-    propagation_delay_ns: float = Field(..., description="Measured delay in ns")
+    leakage_current_ua: Optional[float] = Field(None, description="Measured leakage in uA (null if the parameter is absent)")
+    iddq_ma: Optional[float] = Field(None, description="Measured IDDQ in mA (null if the parameter is absent)")
+    propagation_delay_ns: Optional[float] = Field(None, description="Measured delay in ns (null if the parameter is absent)")
     imputed_fields: Optional[List[str]] = Field(None, description="Parameters imputed at ingest (display only)")
     recorded_at: datetime = Field(..., description="Timestamp of measurement acquisition")
 
