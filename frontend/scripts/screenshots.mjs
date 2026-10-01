@@ -1,4 +1,4 @@
-// Visits all 9 screens, checks the data-source tag on each and the Recompute button, (then runs the judge-mode predict + score flow on examples/judge/) in headless Chromium against a running stack, saves a screenshot of each to
+// Visits all 8 routes (Overview, Lot Analysis, Part Detail, Review Queue, Trends, Model Performance incl. judge mode, Ingest, Reports), checks the data-source tag on each and the Recompute button, (then runs the judge-mode predict + score flow on examples/judge/) in headless Chromium against a running stack, saves a screenshot of each to
 // reports/screenshots/, and reports errors, empty states and stale values (page numbers compared
 // with a fresh API read). Exit code 1 if any screen shows an error, a console error, a failed
 // request or a stale value.
@@ -14,8 +14,9 @@ const API = process.argv[3] ?? 'http://localhost:8000/api/v1';
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '../../reports/screenshots');
 mkdirSync(OUT, { recursive: true });
 
-const SCREENS = ['lots', 'ingest', 'outliers', 'drift', 'components', 'decisions', 'model', 'reports', 'judge'];
-const EMPTY_MARKERS = ['No parts in this lot', 'No part selected', 'Select a part', ': no data', 'No audit events', 'No explanation available'];
+const SCREENS = ['overview', 'lot', 'part', 'review', 'trends', 'model', 'ingest', 'reports'];
+const PATH = { overview: '/' };
+const EMPTY_MARKERS = ['No part selected', 'No lot loaded', 'No audit events', 'No data to plot', 'No readings', 'Nothing to review', 'No feature importance', 'No screening runs'];
 const pct = x => `${(100 * x).toFixed(1)}%`;
 
 const api = async p => (await fetch(API + p)).json();
@@ -31,14 +32,14 @@ const expectedTag = sd.kind === 'SYNTHETIC' ? `SYNTHETIC seed=${sd.seed} generat
 
 // Values each screen must show, computed from a fresh API read at the time of the check.
 const expected = {
-  lots: [`${firstLot.pass_count} pass / ${firstLot.review_count} review / ${firstLot.reject_count} reject`, `Status: ${firstLot.status}`],
-  model: [pct(metrics.recall), pct(metrics.precision), metrics.weighted_cost.toFixed(0)],
-  judge: judgeModel ? [`Trained on ${judgeModel.file}, ${judgeModel.n_parts} parts, ${judgeModel.n_lots} lots`,
-    pct(judgeModel.oof_metrics.detection.recall)] : [],
+  overview: [`Lot ${firstLot.lot_number}`, `${firstLot.pass_count}`, `${firstLot.review_count}`, `${firstLot.reject_count}`],
+  lot: [firstLot.lot_number, `${firstLot.module_a_flag_count}`, `${firstLot.module_b_flag_count}`],
+  model: [pct(metrics.recall), pct(metrics.precision), Math.round(metrics.weighted_cost).toLocaleString('en-US'),
+    ...(judgeModel ? [`Trained on ${judgeModel.file}, ${judgeModel.n_parts} parts, ${judgeModel.n_lots} lots`] : [])],
 };
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const results = [];
 let recomputeNote = '';
 for (const screen of SCREENS) {
@@ -48,7 +49,7 @@ for (const screen of SCREENS) {
   const onResponse = r => r.status() >= 400 && failed.push(`${r.status()} ${r.url()}`);
   page.on('console', onConsole);
   page.on('response', onResponse);
-  await page.goto(`${UI}/${screen}`, { waitUntil: 'networkidle' });
+  await page.goto(`${UI}${PATH[screen] ?? `/${screen}`}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
   const text = await page.locator('body').innerText();
   const errorBanner = /Could not load|failed with HTTP/.test(text);
@@ -56,8 +57,8 @@ for (const screen of SCREENS) {
   const empty = EMPTY_MARKERS.filter(m => text.includes(m));
   const stale = (expected[screen] ?? []).filter(v => !text.includes(v));
   const tag = (await page.locator('[data-testid="data-source-tag"]').innerText().catch(() => '')).trim();
-  if (screen === 'judge' ? !tag.startsWith('UPLOADED') && !tag.startsWith('JUDGE MODE') : tag !== expectedTag) {
-    stale.push(`data-source tag "${tag}" (expected "${screen === 'judge' ? 'UPLOADED: <judge file>' : expectedTag}")`);
+  if (screen === 'model' ? !tag.startsWith(expectedTag) : tag !== expectedTag) {
+    stale.push(`data-source tag "${tag}" (expected "${expectedTag}")`);
   }
   if (screen === 'model') {  // T7 debug: recompute visible metrics from raw rows; all must match
     await page.getByRole('button', { name: 'Recompute' }).click();
@@ -80,7 +81,7 @@ if (judgeModel) {
   const failed = [];
   page.on('console', m => m.type() === 'error' && consoleErrors.push(m.text()));
   page.on('response', r => r.status() >= 400 && failed.push(`${r.status()} ${r.url()}`));
-  await page.goto(`${UI}/judge`, { waitUntil: 'networkidle' });
+  await page.goto(`${UI}/model`, { waitUntil: 'networkidle' });
   await page.setInputFiles('[data-testid="file-Predict from CSV"]', `${EX}/test.csv`);
   await page.waitForSelector('text=preds.csv', { timeout: 60000 });
   await page.setInputFiles('[data-testid="file-Upload truth CSV"]', `${EX}/truth.csv`);

@@ -83,35 +83,36 @@ export const DataIngestScreen: React.FC = () => {
   );
 
   return (
-    <div className="w-full h-full flex flex-col bg-workspace overflow-hidden font-mono text-xs">
-      <div className="border-b border-hairline px-4 py-2 bg-panel flex items-center justify-between">
-        <span className="font-bold text-sm text-main">Data ingest: new lot from CSV</span>
-        <button onClick={loadExample} disabled={mode === 'offline'} className="bg-workspace border border-hairline px-2.5 py-1 text-muted hover:text-main flex items-center gap-1 disabled:opacity-40">
-          <FileText size={12} /> Load example CSV (seeded generator)
+    <div className="space-y-5 max-w-[1500px] text-sm" data-testid="ingest">
+      <div className="flex items-center justify-between">
+        <p className="text-muted">New lot from CSV: validated and imputed by the backend (never zero-filled), then screened through Modules A and B.</p>
+        <button onClick={loadExample} disabled={mode === 'offline'} className="rounded-lg bg-workspace border border-hairline px-3 py-1.5 text-main hover:bg-panel flex items-center gap-1.5 disabled:opacity-40">
+          <FileText size={14} /> Load example CSV (seeded generator)
         </button>
       </div>
-      {mode === 'offline' && <div className="px-4 py-2 text-review">Ingest needs the backend (validation, storage and screening happen there). Switch data source to Backend.</div>}
+      {mode === 'offline' && <div className="rounded-lg px-4 py-2 bg-review-bg text-review">Ingest needs the backend (validation, storage and screening happen there). Switch data source to Backend.</div>}
 
-      <div className="border-b border-hairline p-4 flex gap-6 shrink-0">
+      <div className="flex gap-5">
         <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); }}
           onClick={() => fileRef.current?.click()}
-          className="flex-1 border-2 border-dashed border-hairline hover:border-toprail cursor-pointer flex flex-col items-center justify-center p-4 bg-panel/40 min-h-[170px]">
+          role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click(); }} aria-label="Upload CSV"
+          className="flex-1 rounded-card border-2 border-dashed border-hairline hover:border-navy cursor-pointer flex flex-col items-center justify-center p-6 bg-workspace min-h-[200px] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan">
           <input type="file" ref={fileRef} accept=".csv,text/csv" className="hidden" onChange={e => e.target.files?.[0] && readFile(e.target.files[0])} />
-          <UploadCloud size={28} className="text-muted mb-2" />
-          <span className="font-semibold text-main">Drop CSV here or click to browse</span>
-          <span className="text-[10px] text-muted mt-2 text-center break-all">Required: a part ID and leakage, IDDQ and delay at 0h and 24h. Optional: 96h, 168h, lot, temperature, unit.<br />
+          <UploadCloud size={30} className="text-navy mb-2" />
+          <span className="font-semibold text-md text-main">Drop CSV here or click to browse</span>
+          <span className="text-xs text-muted mt-2 text-center break-all max-w-[720px]">Required: a part ID and leakage, IDDQ and delay at 0h and 24h. Optional: 96h, 168h, lot, temperature, unit.<br />
             Wide, long or tidy layout; headers matched case-insensitively and fuzzily (Iddq_0h, I_0, T0, "leakage (nA) 24h"); units nA/uA/mA, ps/ns converted.<br />{INGEST_HEADER.join(',')}</span>
           {fileName && <span className="mt-2 text-muted">File: <strong className="text-main">{fileName}</strong></span>}
         </div>
 
-        <div className="w-[380px] border border-hairline p-3 bg-panel flex flex-col justify-between">
+        <div className="w-[400px] rounded-card border border-hairline p-4 bg-workspace flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-2 border-b border-hairline mb-2">
-              <span className="font-bold font-sans">Backend validation</span>
+              <span className="text-card font-semibold">Backend validation</span>
               {v && <span className={v.ok ? 'text-accept' : 'text-reject'}>{v.issues.length} issues</span>}
             </div>
             {v ? (
-              <div className="space-y-1 text-[11px]">
+              <div className="space-y-1">
                 {check(v.missingColumns.length === 0, v.missingColumns.length ? `Missing columns: ${v.missingColumns.join(', ')}` : 'All required columns present')}
                 {check(true, `${v.rowsTotal} rows, ${v.partsAccepted} parts accepted`)}
                 {check(v.rowsRejected === 0, `${v.rowsRejected} rows rejected (${v.duplicatePartIds} duplicate IDs)`)}
@@ -121,7 +122,7 @@ export const DataIngestScreen: React.FC = () => {
                 {v.layout && <div className="text-muted">Layout: {v.layout}{v.nLotsInFile > 1 ? `, ${v.nLotsInFile} lots in file` : ''}</div>}
                 {unitList.length > 0 && (
                   <div className="pt-1" data-testid="detected-units">
-                    <div className="font-bold font-sans">Detected units</div>
+                    <div className="font-semibold">Detected units</div>
                     {unitList.map(([p, u]) => (
                       <div key={p} className={u.implausible ? 'text-review' : ''}>
                         {p}: {Object.entries(u.detected).map(([unit, src]) => `${unit} (${src})`).join(', ')} → {u.canonical}
@@ -141,14 +142,14 @@ export const DataIngestScreen: React.FC = () => {
           </div>
           <div className="pt-2 border-t border-hairline space-y-2">
             <input value={lotNumber} onChange={e => setLotNumber(e.target.value)} placeholder="Lot number (optional)"
-              className="w-full bg-workspace border border-hairline px-2 py-1 focus:outline-none" />
+              className="w-full rounded-lg bg-workspace border border-hairline px-3 py-1.5 focus:outline-none focus:border-navy" />
             <button onClick={commit} disabled={!v || !v.ok || busy || mode === 'offline' || (v.needsUnitConfirmation && !unitsConfirmed)}
-              className="w-full bg-toprail text-white py-1 disabled:opacity-40">{busy ? 'Ingesting and screening…' : 'Ingest and screen lot'}</button>
+              className="w-full rounded-lg bg-accent hover:bg-accent-hover text-white font-medium py-2 disabled:opacity-40">{busy ? 'Ingesting and screening…' : 'Ingest and screen lot'}</button>
             {error && v && <div className="text-reject">{error}</div>}
             {result?.lotId && result.screening && (
               <div className="text-accept">
                 ✓ {result.lotNumber}: {result.screening.nScreened} parts screened ({Object.entries(result.screening.verdicts).map(([k, n]) => `${n} ${k}`).join(', ')}).{' '}
-                <button className="underline" onClick={() => navigate('/lots')}>Open lot</button>
+                <button className="underline" onClick={() => navigate('/')}>Open lot</button>
                 {result.screening.warning && <div className="text-review mt-1" role="status">⚠ {result.screening.warning}</div>}
               </div>
             )}
@@ -156,10 +157,10 @@ export const DataIngestScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 grid grid-cols-2 gap-4 p-4 overflow-hidden">
-        <div className="border border-hairline overflow-auto">
-          <div className="p-2 bg-panel border-b border-hairline font-semibold">Raw preview (first {rows.length} lines)</div>
-          <table className="text-left border-collapse">
+      <div className="grid grid-cols-2 gap-5">
+        <div className="rounded-card border border-hairline bg-workspace overflow-auto max-h-[420px]">
+          <div className="px-4 py-3 border-b border-hairline text-card font-semibold">Raw preview <span className="text-sm font-normal text-muted">(first {rows.length} lines)</span></div>
+          <table className="text-left border-collapse font-mono text-xs">
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className={i === 0 ? 'bg-panel font-bold text-muted' : ''}>
@@ -169,27 +170,33 @@ export const DataIngestScreen: React.FC = () => {
             </tbody>
           </table>
         </div>
-        <div className="border border-hairline overflow-auto">
-          <div className="p-2 bg-panel border-b border-hairline font-semibold">Issues ({v?.issues.length ?? 0}){v && v.issues.length > 0 && <span className="font-normal text-muted"> · click an issue to show its file line</span>}</div>
+        <div className="rounded-card border border-hairline bg-workspace overflow-auto max-h-[420px]">
+          <div className="px-4 py-3 border-b border-hairline text-card font-semibold">Parsed columns <span className="text-sm font-normal text-muted">(how each header was interpreted)</span></div>
+          {v && v.columnMap.length > 0 ? (
+            <table className="w-full text-left" data-testid="parsed-preview">
+              <thead><tr className="text-muted border-b border-hairline"><th className="px-4 py-1.5 font-semibold">Header</th><th className="font-semibold">Interpreted as</th><th className="font-semibold">Match</th></tr></thead>
+              <tbody>{v.columnMap.map(c => (
+                <tr key={c.header} className={`border-b border-hairline-subtle ${c.role === 'ignored' ? 'text-review' : ''}`}>
+                  <td className="px-4 py-1 font-mono">{c.header}</td>
+                  <td>{c.role === 'reading' ? `${c.param}${c.hour != null ? ` @ ${c.hour}h` : ''}${c.unit ? ` [${c.unit}]` : ''}` : c.role}{c.note ? `: ${c.note}` : ''}</td>
+                  <td className="text-muted">{c.how ?? ''}</td>
+                </tr>))}</tbody>
+            </table>
+          ) : <div className="p-4 text-muted">Load a file to see the parsed columns.</div>}
+        </div>
+      </div>
+      <div className="rounded-card border border-hairline bg-workspace overflow-auto max-h-[420px]">
+        <div>
+          <div className="px-4 py-3 border-b border-hairline text-card font-semibold">Issues ({v?.issues.length ?? 0}){v && v.issues.length > 0 && <span className="font-normal text-muted"> · click an issue to show its file line</span>}</div>
           {selectedRow != null && (
-            <div className="m-2 p-2 border border-toprail bg-workspace" data-testid="issue-row">
+            <div className="m-3 p-3 rounded-lg border border-navy bg-panel font-mono text-xs" data-testid="issue-row">
               <div className="text-muted">Line 1 (header): {lineAt(1)}</div>
               <div className="text-main font-bold">Line {selectedRow}: {lineAt(selectedRow) || '(not found)'}</div>
             </div>
           )}
-          {v && v.columnMap.length > 0 && (
-            <details className="mx-2 mb-1">
-              <summary className="cursor-pointer text-muted">Column mapping ({v.columnMap.filter(c => c.role !== 'ignored').length} used, {v.columnMap.filter(c => c.role === 'ignored').length} ignored)</summary>
-              {v.columnMap.map(c => (
-                <div key={c.header} className={c.role === 'ignored' ? 'text-review' : ''}>
-                  "{c.header}" → {c.role === 'reading' ? `${c.param}${c.hour != null ? ` @ ${c.hour}h` : ''}${c.unit ? ` [${c.unit}]` : ''}` : c.role} {c.how && c.how !== 'exact' ? `(${c.how})` : ''}{c.note ? `: ${c.note}` : ''}
-                </div>
-              ))}
-            </details>
-          )}
-          <div className="p-2 space-y-1">
+          <div className="p-3 space-y-1.5">
             {v?.issues.map((iss, i) => (
-              <div key={i} onClick={() => setSelectedRow(iss.row)} className={`p-1.5 border flex gap-2 cursor-pointer ${iss.severity === 'error' ? 'border-reject/40 bg-reject-bg text-reject' : 'border-review/40 bg-review-bg text-review'}`}>
+              <div key={i} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') setSelectedRow(iss.row); }} onClick={() => setSelectedRow(iss.row)} className={`px-3 py-1.5 rounded-lg border flex gap-2 cursor-pointer ${iss.severity === 'error' ? 'border-reject/40 bg-reject-bg text-reject' : 'border-review/40 bg-review-bg text-review'}`}>
                 <AlertTriangle size={12} className="shrink-0 mt-0.5" />
                 <span>Row {iss.row}{iss.partId ? ` (${iss.partId})` : ''}{iss.column ? ` [${iss.column}]` : ''}: {iss.message}</span>
               </div>

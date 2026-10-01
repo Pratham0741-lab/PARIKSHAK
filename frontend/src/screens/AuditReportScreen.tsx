@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { PARAM_UNIT, lotParam } from '../data/types';
 import { Printer, Download } from 'lucide-react';
-import { StatusMarker } from '../components/common/StatusMarker';
 import { LotConditions } from '../components/common/LotConditions';
+import { StatusPill } from '../components/ui/primitives';
+import { lotCsv } from '../lib/exportCsv';
 
 export const AuditReportScreen: React.FC = () => {
   const { parts, predictions, activeLot, auditEvents, inspector, config, api } = useStore();
@@ -19,18 +20,8 @@ export const AuditReportScreen: React.FC = () => {
   const total = parts.length || 1;
   const flagged = parts.filter(p => p.isFlagged);
 
-  const csvRows = useMemo(() => {
-    const header = ['part_id', ...[0, 24, 96, 168].map(h => `${param}_${h}h`), `forecast_${param}_168h`, 'interval_lower', 'interval_upper',
-      'module_a_score', 'threshold_a', 'module_b_z', 'threshold_b', 'model_verdict', 'status', 'status_source', 'inspector', 'reason'];
-    const q = (v: unknown) => (v == null ? '' : typeof v === 'string' ? `"${v.replace(/"/g, '""')}"` : String(v));
-    return [header.join(','), ...parts.map(p => {
-      const pr = predictions[p.partId];
-      const l = pr?.moduleB?.perParam[param];
-      return [p.partId, p.readings[0], p.readings[24], p.readings[96], p.readings[168], l?.forecast168h, l?.intervalLower, l?.intervalUpper,
-        pr?.moduleA?.score, pr?.moduleA?.threshold, pr?.moduleB?.score, pr?.moduleB?.thresholdK, pr?.verdict, p.status, p.statusSource,
-        p.inspector, p.reason].map(q).join(',');
-    })].join('\n');
-  }, [parts, predictions, param]);
+  // Same content as the header Export (lib/exportCsv.ts).
+  const csvRows = useMemo(() => lotCsv(activeLot, parts, predictions), [activeLot, parts, predictions]);
 
   // Hash of the exact exported content (not a placeholder): changes whenever any row changes.
   useEffect(() => {
@@ -59,10 +50,10 @@ export const AuditReportScreen: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full flex bg-pagebg overflow-hidden divide-x divide-hairline">
-      <div className="flex-1 overflow-y-auto p-6 flex justify-center bg-[#CDD2D6]">
-        <div className="w-[640px] min-h-[842px] bg-white border border-hairline shadow-sm p-8 text-main font-mono text-[11px] select-text space-y-4">
-          <div className="border-b-2 border-toprail pb-3 flex justify-between">
+    <div className="flex gap-5 max-w-[1500px] items-start" data-testid="reports">
+      <div className="flex-1 rounded-card border border-hairline bg-panel p-6 flex justify-center">
+        <div className="w-[595px] min-h-[842px] bg-white border border-hairline rounded-sm p-8 text-main text-[11px] select-text space-y-4" aria-label="A4 report preview">
+          <div className="border-b-2 border-navy pb-3 flex justify-between">
             <div>
               <h1 className="font-bold text-base tracking-wider uppercase">PARIKSHAK</h1>
               <h2 className="font-sans text-xs font-semibold text-muted">Burn-in screening report</h2>
@@ -98,7 +89,7 @@ export const AuditReportScreen: React.FC = () => {
                       <td className="p-1 text-right">{pr?.moduleA?.score?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 text-right">{pr?.moduleB?.score?.toFixed(2) ?? '–'}</td>
                       <td className="p-1 truncate max-w-[150px] text-muted">{p.reason}</td>
-                      <td className="p-1"><StatusMarker status={p.status} /></td>
+                      <td className="p-1"><StatusPill status={p.status} /></td>
                     </tr>
                   );
                 })}
@@ -131,19 +122,19 @@ export const AuditReportScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="w-[320px] shrink-0 bg-panel flex flex-col font-mono text-xs">
-        <div className="p-3 border-b border-hairline flex gap-2">
-          <button onClick={() => window.print()} className="flex-1 bg-workspace border border-hairline py-1 flex items-center justify-center gap-1"><Printer size={12} /> Print</button>
-          <button onClick={exportCsv} className="flex-1 bg-toprail text-white py-1 flex items-center justify-center gap-1"><Download size={12} /> Export CSV</button>
+      <div className="w-[360px] shrink-0 rounded-card border border-hairline bg-workspace flex flex-col text-sm max-h-[calc(100vh-200px)]">
+        <div className="p-4 border-b border-hairline flex gap-2">
+          <button onClick={() => window.print()} className="flex-1 rounded-lg bg-workspace border border-hairline py-1.5 flex items-center justify-center gap-1.5 hover:bg-panel"><Printer size={14} /> Print</button>
+          <button onClick={exportCsv} className="flex-1 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium py-1.5 flex items-center justify-center gap-1.5"><Download size={14} /> Export CSV</button>
         </div>
-        <div className="p-3 font-sans font-bold">Audit log ({auditEvents.length})</div>
-        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+        <div className="px-4 pt-3 pb-2 text-card font-semibold">Audit log <span className="text-sm font-normal text-muted">({auditEvents.length})</span></div>
+        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2" data-testid="audit-log">
           {auditEvents.length === 0 && <div className="text-muted">No audit events for this lot yet.</div>}
           {auditEvents.map(e => (
-            <div key={e.id} className="border border-hairline bg-workspace p-2">
+            <div key={e.id} className="rounded-lg border border-hairline bg-panel p-2.5">
               <div className="flex justify-between text-[10px] text-muted"><span>{new Date(e.timestamp).toLocaleString()}</span><span>{e.category}</span></div>
               <div className="font-semibold">{e.action} · {e.actor}</div>
-              <div className="text-[10px] text-muted font-sans">{e.details}</div>
+              <div className="text-xs text-muted">{e.details}</div>
             </div>
           ))}
         </div>
@@ -154,7 +145,7 @@ export const AuditReportScreen: React.FC = () => {
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div>
-    <div className="font-sans font-bold text-xs uppercase border-b border-hairline pb-1 mb-2">{title}</div>
+    <div className="font-bold text-xs uppercase tracking-wide text-navy border-b border-hairline pb-1 mb-2">{title}</div>
     {children}
   </div>
 );

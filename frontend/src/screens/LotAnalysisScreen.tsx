@@ -19,7 +19,7 @@ export const LotAnalysisScreen: React.FC = () => {
   const param = lotParam(activeLot);
   const unit = PARAM_UNIT[param];
   const limit = lotLimit(activeLot, param, config?.datasheetLimits);
-  const used = ((activeLot?.sourceDetail?.parameters_used as string[] | undefined) ?? [...PARAMS]) as Param[];
+  const used = useMemo(() => ((activeLot?.sourceDetail?.parameters_used as string[] | undefined) ?? [...PARAMS]) as Param[], [activeLot]);
 
   const perT = useMemo(() => INTERVALS.map(t => ({ t, r: robust(valuesAt(parts, param, t)), mean: (() => {
     const v = valuesAt(parts, param, t); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;

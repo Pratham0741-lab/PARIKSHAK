@@ -13,7 +13,7 @@ import { DevControlModal } from './DevControlModal';
 import { DecisionDrawer } from '../ui/DecisionDrawer';
 import { Button, ErrorState, LoadingState } from '../ui/primitives';
 import { download, lotCsv } from '../../lib/exportCsv';
-import { sourceTag } from './DataSourceBar';
+import { sourceTag } from '../../lib/sourceTag';
 
 export const NAV = [
   { to: '/', label: 'Overview', icon: LayoutGrid, end: true },
