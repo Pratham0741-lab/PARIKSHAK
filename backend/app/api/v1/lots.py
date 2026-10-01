@@ -47,11 +47,14 @@ async def list_lots(
             Lot.static_limit,
             Lot.conditions_assumed,
             Lot.source_detail,
+            Lot.supplier,
             Lot.created_at,
             func.count(Component.id).label("total_components"),
             func.count(case((ModelPrediction.verdict == ScreeningVerdict.PASS, 1))).label("pass_count"),
             func.count(case((ModelPrediction.verdict == ScreeningVerdict.REVIEW, 1))).label("review_count"),
             func.count(case((ModelPrediction.verdict == ScreeningVerdict.REJECT, 1))).label("reject_count"),
+            func.count(case((ModelPrediction.module_a_flag.is_(True), 1))).label("module_a_flag_count"),
+            func.count(case((ModelPrediction.module_b_flag.is_(True), 1))).label("module_b_flag_count"),
         )
         .outerjoin(Component, Component.lot_id == Lot.id)
         .outerjoin(ModelPrediction, ModelPrediction.component_id == Component.id)
@@ -80,6 +83,9 @@ async def list_lots(
             pass_count=r.pass_count,
             review_count=r.review_count,
             reject_count=r.reject_count,
+            module_a_flag_count=r.module_a_flag_count,
+            module_b_flag_count=r.module_b_flag_count,
+            supplier=r.supplier,
         )
         for r in rows
     ]

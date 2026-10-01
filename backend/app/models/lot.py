@@ -68,6 +68,7 @@ class Lot(Base):
     conditions_assumed: Mapped[Optional[List[str]]] = mapped_column(
         JSONB, nullable=True, doc="Names of condition fields that were defaulted rather than supplied"
     )
+    supplier: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, doc="Supplier (optional, from ingest)")
     source_detail: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSONB, nullable=True, doc="Provenance: file name + hash for uploads, generator + seed for synthetic lots"
     )

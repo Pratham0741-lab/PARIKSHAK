@@ -38,6 +38,7 @@ class IngestRequest(BaseModel):
     unit: Optional[str] = Field(None, max_length=16)
     static_limit: Optional[float] = Field(None, gt=0, description="in the file's unit for the monitored parameter")
     units: Optional[Dict[str, str]] = Field(None, description="unit overrides, e.g. {'leakage': 'nA'}")
+    supplier: Optional[str] = Field(None, max_length=128, description="Supplier (optional; else a `supplier` CSV column)")
     units_confirmed: bool = Field(False, description="the user has confirmed the detected units")
 
 
@@ -81,7 +82,7 @@ def _ingest_sync(req: IngestRequest, parsed=None) -> IngestResponse:
         if session.scalar(select(Lot.id).where(Lot.lot_number == lot_number)):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Lot {lot_number} already exists")
         lot = Lot(lot_number=lot_number, wafer_id=req.wafer_id, status=LotStatus.INGESTED, source="CSV_INGEST",
-                  **conditions, conditions_assumed=assumed,
+                  **conditions, conditions_assumed=assumed, supplier=req.supplier or parsed.conditions.get("supplier"),
                   source_detail={"kind": "UPLOADED", "file": req.filename or "(pasted CSV)",
                                  "sha256": parsed.sha256, "rows": parsed.rows_total, "layout": parsed.layout,
                                  "units_in_file": source_units, "units_confirmed": req.units_confirmed,

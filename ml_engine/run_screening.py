@@ -166,9 +166,11 @@ def run_pipeline(
                       f"(A={final.thresholds_['threshold_a']:.4f}, B={final.thresholds_['threshold_b']:.4f})")
 
         result: Dict[str, Any] = {"held_out": held_out, "predictions": cf.predictions, "final_model": final}
+        # In-sample (TRAIN, optimistic) metrics of the final model, persisted beside the held-out ones so the UI
+        # can show the gap. Never a performance estimate.
+        train_preds = final.predict(early_readings_only(df))
+        result["train_optimistic"] = score(train_preds, truth, cost)
         if report_train:
-            train_preds = final.predict(early_readings_only(df))
-            result["train_optimistic"] = score(train_preds, truth, cost)
             print_metrics("TRAIN (optimistic, in-sample - NOT a performance estimate)", result["train_optimistic"])
 
         if persist:
@@ -177,7 +179,10 @@ def run_pipeline(
                 cost_config=cost.as_dict(),
                 final_thresholds=_jsonable(final.thresholds_),
                 fold_thresholds=_jsonable({str(k): m.thresholds_ for k, m in cf.models.items()}),
-                held_out_metrics=_jsonable(held_out),
+                held_out_metrics=_jsonable({**held_out, "train_optimistic": result["train_optimistic"],
+                                            "split": {"method": f"GroupKFold over lots, k={n_splits}",
+                                                      "n_lots": int(df["lot_id"].nunique()),
+                                                      "n_parts": int(df["component_id"].nunique())}}),
                 artifact_path=str(artifact),
             )
             session.add(run)

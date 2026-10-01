@@ -30,6 +30,9 @@ class LotSummary(BaseModel):
     pass_count: int = Field(0, description="Components triaged as PASS")
     review_count: int = Field(0, description="Components triaged as REVIEW")
     reject_count: int = Field(0, description="Components triaged as REJECT")
+    module_a_flag_count: int = Field(0, description="Components flagged by Module A (lot-relative outlier)")
+    module_b_flag_count: int = Field(0, description="Components flagged by Module B (drift / safety slope)")
+    supplier: Optional[str] = Field(None, description="Supplier, if supplied at ingest (optional)")
     created_at: datetime = Field(..., description="Lot initialization timestamp")
 
 

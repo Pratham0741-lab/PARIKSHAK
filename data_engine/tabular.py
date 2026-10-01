@@ -71,6 +71,7 @@ ROLE_ALIASES = {
     "unit": ("unit", "units"),
     "limit": ("static_limit", "limit", "datasheet_limit", "spec_limit", "usl"),
     "parameter": ("test_parameter", "parameter", "param", "measurement"),
+    "supplier": ("supplier", "vendor", "manufacturer"),
     "value": ("value", "reading", "measured_value", "result"),
 }
 NORMAL_LABELS = ("", "NORMAL", "OK", "PASS", "GOOD", "NONE")
@@ -328,7 +329,7 @@ def read_table(source, default_parameter: Optional[str] = None,
     rec_bare: List[bool] = []
     ignored_intervals: Dict[str, int] = {}
     meta_rows: Dict[str, Dict[str, str]] = {}
-    lot_values: Dict[str, List[str]] = {r: [] for r in ("temperature", "unit", "limit", "parameter")}
+    lot_values: Dict[str, List[str]] = {r: [] for r in ("temperature", "unit", "limit", "parameter", "supplier")}
     seen_ids: Dict[Any, int] = {}
     reading_cols = [(i, c) for i, c in enumerate(cols) if c.role == "reading"]
 
@@ -416,7 +417,7 @@ def read_table(source, default_parameter: Optional[str] = None,
     # ---- units: override > header/row unit > unit column (for the monitored parameter) > canonical (assumed)
     conditions: Dict[str, Any] = {}
     for role, key in (("temperature", "temperature_c"), ("limit", "static_limit"), ("parameter", "test_parameter"),
-                      ("unit", "unit")):
+                      ("unit", "unit"), ("supplier", "supplier")):
         vals = lot_values[role]
         if not vals or (layout == "tidy" and role in ("parameter", "unit")):
             continue  # in a tidy file these columns vary per row

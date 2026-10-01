@@ -180,3 +180,67 @@ async def get_cost_curve(
         n_parts=len(comps),
         points=curve,
     )
+
+
+_FI_CACHE: Dict[str, Any] = {"mtime": None, "value": None}
+
+
+def _feature_importance() -> Dict[str, Any]:
+    """Global Module B feature importance from the persisted production model: LightGBM total gain per feature,
+    as a share of that parameter's total gain."""
+    from backend.app.services.screening_service import artifact_path, load_model
+    from ml_engine.explain import feature_label
+
+    path = artifact_path()
+    if not path.exists():
+        return {}
+    mtime = path.stat().st_mtime
+    if _FI_CACHE["mtime"] != mtime:
+        model = load_model(path)
+        b = model.module_b
+        out: Dict[str, Any] = {}
+        for p, m in b.models_.items():
+            gain = m.booster_.feature_importance(importance_type="gain").astype(float)
+            total = float(gain.sum()) or 1.0
+            ranked = sorted(zip(b.feature_columns_, gain, strict=False), key=lambda t: -t[1])
+            out[p] = [{"feature": f, "label": feature_label(f), "share": round(g / total, 4)} for f, g in ranked[:10]]
+        _FI_CACHE.update(mtime=mtime, value={"method": "LightGBM total gain, share of the parameter's total",
+                                             "per_parameter": out})
+    return _FI_CACHE["value"]
+
+
+@router.get("/model", summary="Model registry, held-out vs train (optimistic), Module B feature importance, "
+                              "predicted-vs-actual 168h for the held-out parts")
+async def model_report(db: AsyncSession = Depends(get_async_db)) -> Dict[str, Any]:
+    from starlette.concurrency import run_in_threadpool
+
+    runs = (await db.execute(select(ScreeningRun).order_by(ScreeningRun.created_at.desc()))).scalars().all()
+    registry = []
+    for i, r in enumerate(runs):
+        d = (r.held_out_metrics or {}).get("detection") or {}
+        registry.append({"id": str(r.id), "created_at": r.created_at.isoformat(), "current": i == 0,
+                         "artifact": r.artifact_path.replace("\\", "/").rsplit("/", 1)[-1] if r.artifact_path else None,
+                         "held_out_recall": d.get("recall"), "held_out_precision": d.get("precision"),
+                         "held_out_weighted_cost": d.get("weighted_cost")})
+    hm = (runs[0].held_out_metrics or {}) if runs else {}
+
+    # Predicted vs actual 168h leakage for the labelled parts (out-of-fold predictions), with the 90% interval
+    # and the linear-extrapolation baseline.
+    points = []
+    for c in (await _labelled_rows(db))["rows"]:
+        p = c.prediction
+        r = {x.interval_hours: x.leakage_current_ua for x in c.readings}
+        if p.pred_leakage_168h is None or r.get(168) is None or r.get(0) is None or r.get(24) is None:
+            continue
+        iv = (((p.details or {}).get("prediction_interval") or {}).get("per_parameter") or {}).get("leakage_current_ua") or {}
+        points.append({"pred": round(p.pred_leakage_168h, 4), "actual": round(r[168], 4),
+                       "lo": iv.get("lower"), "hi": iv.get("upper"), "linear": round(r[0] + 7.0 * (r[24] - r[0]), 4)})
+    return {
+        "registry": registry,
+        "held_out": {k: hm.get(k) for k in ("detection", "regression", "trivial_policies", "n_scored")},
+        "train_optimistic": hm.get("train_optimistic"),
+        "split": hm.get("split"),
+        "protocol": runs[0].protocol if runs else None,
+        "feature_importance": await run_in_threadpool(_feature_importance),
+        "predicted_vs_actual": {"parameter": "leakage_current_ua", "unit": "uA", "points": points},
+    }
