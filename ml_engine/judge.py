@@ -18,7 +18,6 @@ removed first). The output is the export table (EXPORT_COLUMNS) plus a compact e
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -136,23 +135,57 @@ class JudgeModel:
     info: Dict[str, Any] = field(default_factory=dict)
 
     def save(self, directory: Path) -> Path:
+        """Portable bundle (ml_engine/artifacts.py) in `directory`, plus `latest.pkl` pointing to it (an atomic copy)."""
+        from ml_engine.artifacts import save_bundle
+
         directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f"judge_{self.info['data_sha256'][:16]}.joblib"
-        self.model.save(path)
-        (directory / "active.json").write_text(json.dumps({**self.info, "artifact": path.name}, indent=2, default=str),
-                                               encoding="utf-8")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+        path = directory / f"judge_{self.info['data_sha256'][:12]}_{stamp}.pkl"
+        save_bundle(self.model, self.info, path)
+        install_latest(path, directory)
         return path
 
     @staticmethod
+    def load(path: Path) -> JudgeModel:
+        """Load and verify a bundle (checksum, format, self-test). The stored info and metrics are returned unchanged."""
+        from ml_engine.artifacts import describe, load_bundle
+
+        model, meta, _ = load_bundle(path)
+        return JudgeModel(model=model, info={**meta["info"], "bundle": describe(meta, Path(path))})
+
+    @staticmethod
     def load_active(directory: Path) -> Optional[JudgeModel]:
-        meta = directory / "active.json"
-        if not meta.exists():
-            return None
-        info = json.loads(meta.read_text(encoding="utf-8"))
-        path = directory / info["artifact"]
-        if not path.exists():
-            return None
-        return JudgeModel(model=ScreeningModel.load(path), info=info)
+        from ml_engine.artifacts import LATEST
+
+        path = directory / LATEST
+        return JudgeModel.load(path) if path.exists() else None
+
+
+def existing_copy(data: bytes, directory: Path) -> Optional[Path]:
+    """A bundle file in `directory` with exactly these bytes (so importing/installing twice does not duplicate it)."""
+    import hashlib
+
+    from ml_engine.artifacts import LATEST
+
+    h = hashlib.sha256(data).hexdigest()
+    for p in directory.glob("*.pkl"):
+        if p.name != LATEST and not p.name.startswith(".tmp_") and hashlib.sha256(p.read_bytes()).hexdigest() == h:
+            return p
+    return None
+
+
+def install_latest(path: Path, directory: Path) -> None:
+    """Point latest.pkl at `path` (atomic copy; symlinks are not portable to Windows hosts or every volume)."""
+    import os
+    import shutil
+    import tempfile
+
+    from ml_engine.artifacts import LATEST
+
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp_", suffix=".pkl")
+    os.close(fd)
+    shutil.copyfile(path, tmp)
+    os.replace(tmp, directory / LATEST)
 
 
 # Small-file policy (fixed in advance, not tuned): below these sizes a file is not used to train Module B.
@@ -285,6 +318,10 @@ def train(table, filename: str, cost: Optional[CostConfig] = None, seed: int = 4
                           f"(cost {chosen[4]['detection']['weighted_cost']:.0f} vs flag-everything "
                           f"{chosen[4]['trivial_policies']['flag_all_parts']['weighted_cost']:.0f})")
     path, model, val, split, metrics, _ = chosen
+    # In-sample (TRAIN, optimistic) metrics of the chosen model on its own training file; never a performance estimate.
+    early_all = early_readings_only(df)
+    early_all = early_all[[c for c in early_all.columns if c not in ("ground_truth_flag", "ground_truth_label")]]
+    train_optimistic = score_export(export_frame(model.predict(early_all, limits=limits), primary), truth, primary, cost)
     rate = _flag_rate(metrics)
     flag_rate_warning = (f"validation flag rate {100 * rate:.1f}% is above the {100 * max_flag_rate:.0f}% ceiling"
                          if rate > max_flag_rate else None)
@@ -296,7 +333,7 @@ def train(table, filename: str, cost: Optional[CostConfig] = None, seed: int = 4
         "label_source": label_source, "rule": {"id": RULE_ID, "text": RULE_TEXT},
         "path": path, "paths_tried": paths, "banner": banner, "max_flag_rate": max_flag_rate,
         "flag_rate": rate, "flag_rate_warning": flag_rate_warning,
-        "evaluation_split": split, "single_lot": single, "oof_metrics": metrics,
+        "evaluation_split": split, "single_lot": single, "oof_metrics": metrics, "train_optimistic": train_optimistic,
         "thresholds": {k: model.thresholds_.get(k) for k in ("threshold_a", "threshold_b", "source")},
         "cost_config": cost.as_dict(), "seed": seed, "trained_at": datetime.now(UTC).isoformat(),
     }

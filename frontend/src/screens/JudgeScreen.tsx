@@ -76,6 +76,7 @@ export const JudgeScreen: React.FC = () => {
     setJudgeSource(parts.filter(Boolean).join(' · ') || null);
   }, [model, pred, setJudgeSource]);
 
+  const bundleRef = useRef<HTMLInputElement>(null);
   const refresh = async () => {
     const r = await judgeApi.model();
     setModel(r.model);
@@ -120,11 +121,34 @@ export const JudgeScreen: React.FC = () => {
       <section className="border border-hairline rounded-lg bg-panel p-4 space-y-2">
         <div className="flex items-center justify-between">
           <span className="font-semibold text-md text-main">1. Train (file with 168h readings; labels optional)</span>
-          <FilePick label="Train on CSV" disabled={!!job} onFile={train} />
+          <div className="flex gap-2">
+            <FilePick label="Train on CSV" disabled={!!job} onFile={train} />
+            <button disabled={!model} onClick={() => guard(async () => {
+              const { blob, name } = await judgeApi.exportBundle();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+            })()} className="rounded-lg bg-accent hover:bg-accent-hover text-white px-3 py-1.5 font-medium disabled:opacity-40" data-testid="export-bundle">Export model (.pkl)</button>
+            <input ref={bundleRef} type="file" accept=".pkl" className="hidden" data-testid="file-bundle"
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) guard(async () => { await judgeApi.importBundle(f); setPred(null); setScore(null); await refresh(); })(); }} />
+            <button onClick={() => bundleRef.current?.click()} className="rounded-lg border border-hairline bg-workspace px-3 py-1.5 font-medium hover:bg-panel" data-testid="import-bundle">Import model (.pkl)</button>
+          </div>
         </div>
         {job && <div className="text-review">Training {job}</div>}
         {model ? (
           <div className="space-y-2">
+            {model.bundle && (
+              <div className="text-main flex items-center gap-2 flex-wrap" data-testid="bundle-loaded">
+                Loaded: <strong className="font-mono">{model.bundle.bundle_id}</strong>, trained on <strong>{model.bundle.source_file ?? 'n/a'}</strong>
+                <span className="text-muted font-mono">({model.bundle.data_sha256 ? `${model.bundle.data_sha256.slice(0, 12)}…` : 'no hash'})</span>,
+                {' '}{model.bundle.n_parts} parts, {model.bundle.n_lots} lots
+                {model.bundle.version_mismatch.length > 0 && (
+                  <span className="px-1.5 rounded-full border border-review text-review text-xs" data-testid="version-mismatch" title={model.bundle.version_mismatch.join('; ')}>
+                    ⚠ library versions differ from training
+                  </span>
+                )}
+              </div>
+            )}
             <div className="text-main" data-testid="trained-on">Trained on <strong>{model.file}</strong>, {model.n_parts} parts, {model.n_lots} lots
               <span className="text-muted"> (sha256 {model.data_sha256.slice(0, 12)}…, parameters {model.parameters.join(', ')})</span></div>
             <div>Labels used for thresholds: <strong>{model.label_source}</strong></div>

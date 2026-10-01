@@ -45,6 +45,8 @@ services:
     environment: *backend-env
     volumes:
       - model_artifacts:/app/artifacts
+      # Portable model bundles (.pkl): a host directory, so they survive `docker compose down -v`.
+      - ./models:/app/models
     depends_on:
       burnin_postgres:
         condition: service_healthy
@@ -65,6 +67,7 @@ services:
     volumes:
       # Trained model artifact (thresholds, calibration) must survive container recreation.
       - model_artifacts:/app/artifacts
+      - ./models:/app/models
     depends_on:
       burnin_init:
         condition: service_completed_successfully

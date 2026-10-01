@@ -36,6 +36,7 @@ COPY ml_engine ./ml_engine
 COPY evaluation ./evaluation
 COPY scripts ./scripts
 COPY examples ./examples
+COPY app ./app
 RUN mkdir -p /app/artifacts /app/reports && chown -R appuser:appgroup /app
 
 USER appuser

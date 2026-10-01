@@ -26,6 +26,12 @@ export interface JudgeModelInfo {
   path: string; banner: string[]; max_flag_rate: number; flag_rate: number; flag_rate_warning: string | null;
   paths_tried: { path: string; flag_rate: number; rejected_because: string[] }[];
   thresholds: { threshold_a: number | null; threshold_b: number | null; source: string };
+  bundle?: BundleInfo;
+}
+export interface BundleInfo {
+  bundle_id: string; file: string | null; created_at: string; source_file: string | null; data_sha256: string | null;
+  n_parts: number | null; n_lots: number | null; library_versions: Record<string, string>; version_mismatch: string[];
+  bundle_checksum: string; status?: string; current?: boolean; metrics_held_out?: { recall: number; precision: number; weighted_cost: number } | null;
 }
 export interface JudgeJob { id: string; state: 'running' | 'done' | 'failed'; message: string; file: string; model?: JudgeModelInfo }
 export interface Explanation {
@@ -60,4 +66,22 @@ export const judgeApi = {
   score: (truth_csv: string, truth_filename: string) =>
     call<JudgeMetrics>('/score', { method: 'POST', body: JSON.stringify({ truth_csv, truth_filename }) }),
   exportUrl: `${DEFAULT_API_URL}/judge/predictions.csv`,
+  /** Portable model bundle (.pkl): export the active model, import one (verified server-side), list bundles. */
+  exportBundle: async (): Promise<{ blob: Blob; name: string }> => {
+    const res = await fetch(`${DEFAULT_API_URL}/model/export`, { method: 'POST' });
+    if (!res.ok) throw new Error(`POST /model/export: HTTP ${res.status}`);
+    const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'parikshak_model.pkl';
+    return { blob: await res.blob(), name };
+  },
+  importBundle: async (file: File): Promise<BundleInfo> => {
+    const res = await fetch(`${DEFAULT_API_URL}/model/import`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
+    const body = await res.json();
+    if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
+    return body as BundleInfo;
+  },
+  listBundles: async (): Promise<BundleInfo[]> => {
+    const res = await fetch(`${DEFAULT_API_URL}/model/artifacts`);
+    if (!res.ok) throw new Error(`GET /model/artifacts: HTTP ${res.status}`);
+    return res.json();
+  },
 };

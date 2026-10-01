@@ -65,11 +65,18 @@ def judge_dir() -> Path:
     return artifact_path().parent / "judge"
 
 
+def models_dir() -> Path:
+    from backend.app.services.screening_service import PROJECT_ROOT
+
+    p = Path(settings.MODELS_DIR)
+    return p if p.is_absolute() else PROJECT_ROOT / p
+
+
 def active_model() -> Optional[judge.JudgeModel]:
-    meta = judge_dir() / "active.json"
+    meta = models_dir() / "latest.pkl"
     stamp = meta.stat().st_mtime if meta.exists() else None
     if _ACTIVE["model"] is None or _ACTIVE["loaded_from"] != stamp:
-        _ACTIVE["model"] = judge.JudgeModel.load_active(judge_dir())
+        _ACTIVE["model"] = judge.JudgeModel.load_active(models_dir())
         _ACTIVE["loaded_from"] = stamp
     return _ACTIVE["model"]
 
@@ -105,7 +112,8 @@ def _run_training(job_id: str, text: str, filename: str, static_limit: Optional[
                                         progress=progress, pretrained=pretrained_for(table.params),
                                         max_flag_rate=settings.JUDGE_MAX_FLAG_RATE)
         with _LOCK:
-            jm.save(judge_dir())
+            jm.save(models_dir())
+            judge_dir().mkdir(parents=True, exist_ok=True)
             oof_export.to_csv(judge_dir() / "train_oof_predictions.csv", index=False)
         job.update(state="done", message="trained", model=jm.info)
     except Exception as exc:  # reported to the UI, not swallowed

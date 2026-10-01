@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     THRESHOLD_STRATEGY: str = "separate"
     # Judge mode guard: a path whose validation flag rate exceeds this ceiling is rejected (ml_engine/judge.py).
     JUDGE_MAX_FLAG_RATE: float = 0.40
+    # Portable model bundles (ml_engine/artifacts.py); a host bind mount in docker-compose so they survive `down -v`.
+    MODELS_DIR: str = "models"
 
     @computed_field
     @property

@@ -115,6 +115,7 @@ async def client(tmp_path, monkeypatch):
     from backend.app.main import app
 
     monkeypatch.setattr(judge_api, "judge_dir", lambda: tmp_path / "judge")
+    monkeypatch.setattr(judge_api, "models_dir", lambda: tmp_path / "models")
     judge_api._ACTIVE.update(model=None, loaded_from=None)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

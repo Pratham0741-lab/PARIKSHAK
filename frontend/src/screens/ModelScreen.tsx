@@ -5,6 +5,7 @@ import { ModelReport, ScoreBlock, getModelReport } from '../data/modelApi';
 import { BarRow, Button, Card, EmptyState, ErrorState, LoadingState, StatTile, fmt, int, pct } from '../components/ui/primitives';
 import { LineChart, ScatterPlot } from '../components/ui/charts';
 import { JudgeScreen } from './JudgeScreen';
+import { BundleInfo, judgeApi } from '../data/judgeApi';
 
 const trainNote = (t: ScoreBlock | null | undefined, f: (b: ScoreBlock) => string) => (t ? `train (optimistic, in-sample): ${f(t)}` : 'train metrics: n/a (not persisted for this run)');
 
@@ -15,11 +16,13 @@ export const ModelScreen: React.FC = () => {
   const [fn, setFn] = useState<number | null>(null);
   const [fp, setFp] = useState<number | null>(null);
   const [fiParam, setFiParam] = useState<Param>('leakage_current_ua');
+  const [bundles, setBundles] = useState<BundleInfo[] | null>(null);
 
   useEffect(() => {
     if (mode === 'offline') return;
     loadMetrics();
     getModelReport().then(setReport).catch(e => setErr(String(e)));
+    judgeApi.listBundles().then(setBundles).catch(() => setBundles([]));
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (metrics && fn == null) { setFn(metrics.fnCost); setFp(metrics.fpCost); } }, [metrics]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -110,7 +113,11 @@ export const ModelScreen: React.FC = () => {
           </div>
           {curve && curve.points.length > 0 ? (
             <LineChart height={220} xLabel="Module A threshold (Module B at its chosen k)" yLabel="weighted cost"
-              xTicks={curve.points.filter((_, i) => i % Math.ceil(curve.points.length / 6) === 0).map(p => ({ x: p.threshold, label: p.threshold.toFixed(1) }))}
+              xTicks={(() => {
+                const xs = curve.points.map(p => p.threshold);
+                const lo = Math.min(...xs), hi = Math.max(...xs);
+                return Array.from({ length: 6 }, (_, i) => lo + ((hi - lo) * i) / 5).map(x => ({ x, label: x.toFixed(1) }));
+              })()}
               series={[{ id: 'cost', label: 'cost vs threshold', color: 'var(--status-info)', width: 2, points: curve.points.map(p => ({ x: p.threshold, y: p.weightedCost })) },
                 ...(curve.chosenThreshold != null ? [{ id: 'chosen', label: `chosen threshold ${curve.chosenThreshold.toFixed(3)}`, color: 'var(--accent)', points: [{ x: curve.chosenThreshold, y: Math.min(...curve.points.map(p => p.weightedCost)) }] }] : [])]}
               hLines={[{ y: flagAll, label: 'flag everything', color: 'var(--status-reject)' }]} />
@@ -139,6 +146,20 @@ export const ModelScreen: React.FC = () => {
             </table>
           )}
           {report.registry.length === 1 && <p className="text-xs text-muted mt-2">Only the current run exists; earlier runs appear here after the pipeline is re-run.</p>}
+          <div className="text-md font-semibold mt-5 mb-1">Model bundles (.pkl, judge mode)</div>
+          {bundles == null ? <LoadingState what="bundles" /> : bundles.length === 0 ? <EmptyState title="No bundles" reason="Train in judge mode or import a .pkl; bundles live in models/ (host directory)." /> : (
+            <table className="w-full text-md" data-testid="bundles">
+              <thead><tr className="text-left text-sm text-muted border-b border-hairline"><th className="py-2 font-semibold">Bundle</th><th className="font-semibold">Status</th><th className="font-semibold">Trained on</th><th className="font-semibold text-right">Held-out recall (stored)</th></tr></thead>
+              <tbody>{bundles.map(b => (
+                <tr key={b.file ?? b.bundle_id} className="border-b border-hairline-subtle">
+                  <td className="py-2 font-mono text-sm" title={b.file ?? undefined}>{b.bundle_id ?? b.file}</td>
+                  <td><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${b.status !== 'ok' ? 'bg-reject-bg text-reject' : b.current ? 'bg-accept-bg text-accept' : 'bg-panel text-muted'}`} title={b.status}>{b.status !== 'ok' ? 'Invalid' : b.current ? 'Current' : 'Archived'}</span>
+                    {b.version_mismatch?.length ? <span className="ml-1 text-xs text-review" title={b.version_mismatch.join('; ')}>⚠ versions</span> : null}</td>
+                  <td className="text-sm">{b.source_file ?? 'n/a'} · {b.n_parts ?? 'n/a'} parts, {b.n_lots ?? 'n/a'} lots</td>
+                  <td className="text-right tabular-nums">{pct(b.metrics_held_out?.recall)}</td>
+                </tr>))}</tbody>
+            </table>
+          )}
         </Card>
         <Card title="Judge mode" subtitle="Train on a file, predict on a file, score against truth (identical to python -m evaluation.score)">
           <JudgeScreen />

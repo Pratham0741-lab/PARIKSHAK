@@ -45,6 +45,7 @@ cd frontend && node scripts/screenshots.mjs # all 8 screens -> reports/screensho
 | `python -m evaluation.module_a_dev_study` | Module A decision-statistic selection on development seeds |
 | `python ml_engine/run_screening.py [--fn-cost 20 --fp-cost 1 --report-train]` | Screen all labelled lots out-of-fold, persist predictions, save the model artifact |
 | `python -m evaluation.score --predictions p.csv --truth t.csv` | Score predictions against separately held ground truth |
+| `python -m app.artifacts save --train-file F` / `load models/latest.pkl [--install]` | Portable model bundle (.pkl; checksum, restricted unpickling, self-test). Bundles live in `models/` (host bind mount, survives `docker compose down -v`); API `POST /api/v1/model/export`, `POST /model/import`, `GET /model/artifacts`; reference bundle `examples/artifacts/reference.pkl` |
 
 ---
 

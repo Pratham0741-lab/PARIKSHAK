@@ -93,23 +93,30 @@ def ensure_judge_model() -> None:
     """Train the judge-mode model from examples/judge/train.csv if none is active (fresh volume)."""
     from pathlib import Path
 
-    from backend.app.api.v1.judge import judge_dir, pretrained_for
+    from backend.app.api.v1.judge import judge_dir, models_dir, pretrained_for
     from backend.app.core.config import settings
     from data_engine.tabular import read_table
     from evaluation.cost import CostConfig
     from ml_engine import judge
 
-    if judge.JudgeModel.load_active(judge_dir()) is not None:
+    latest = models_dir() / "latest.pkl"
+    if latest.exists():
+        jm = judge.JudgeModel.load_active(models_dir())  # verifies checksum + self-test; raises with a clear reason
+        b = jm.info["bundle"]
+        print(f"[+] Loaded model bundle {b['bundle_id']} ({latest}): trained on {b['source_file']}, "
+              f"{b['n_parts']} parts, {b['n_lots']} lots" + (f"; version mismatch: {b['version_mismatch']}" if b["version_mismatch"] else ""), flush=True)
         return
     src = Path(__file__).resolve().parent.parent / "examples" / "judge" / "train.csv"
     if not src.exists():
         print(f"[!] No judge model and no {src}; judge mode needs a /judge/train upload.", flush=True)
         return
     print(f"[*] Training the judge-mode model from {src.name}...", flush=True)
-    table = read_table(src.read_text(encoding="utf-8"))
+    table = read_table(src.read_bytes().decode("utf-8"))  # bytes: the stored hash must equal sha256(file)
     jm, oof, _ = judge.train(table, src.name, CostConfig.from_settings(), pretrained=pretrained_for(table.params),
                              max_flag_rate=settings.JUDGE_MAX_FLAG_RATE)
-    jm.save(judge_dir())
+    saved = jm.save(models_dir())
+    print(f"[+] Saved model bundle {saved} (+ latest.pkl)", flush=True)
+    judge_dir().mkdir(parents=True, exist_ok=True)
     oof.to_csv(judge_dir() / "train_oof_predictions.csv", index=False)
     print(f"[+] Judge model trained on {src.name}: {jm.info['n_parts']} parts, {jm.info['n_lots']} lots; "
           f"path: {jm.info['path']}", flush=True)
